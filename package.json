@@ -2,11 +2,13 @@
   "description": "Circomkit examples",
   "scripts": {
     "start": "npx ts-node ./src/index.ts",
+    "generate": "npx ts-node ./src/generate.ts",
     "test": "npx mocha"
   },
   "dependencies": {
-    "circomkit": "^0.0.22",
-    "circomlib": "^2.0.5"
+    "circomkit": "^0.3.3",
+    "circomlib": "^2.0.5",
+    "sparqlalgebrajs": "^5.0.1"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.1",

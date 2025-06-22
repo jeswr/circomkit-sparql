@@ -35,5 +35,10 @@
     "file": "fibonacci",
     "template": "Fibonacci",
     "params": [11]
+  },
+  "sparql_age": {
+    "file": "sparql_age",
+    "template": "AgeVerifier",
+    "params": []
   }
 }

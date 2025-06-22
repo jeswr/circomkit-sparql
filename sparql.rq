@@ -1,0 +1,4 @@
+SELECT ?person WHERE {
+  ?person <http://xmlns.com/foaf/0.1/age> ?age .
+  ?person <http://xmlns.com/foaf/0.1/knows> ?friend .
+}
