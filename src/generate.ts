@@ -92,6 +92,7 @@ for (const join of joins) {
   }
 }
 
+// TODO: Add "OR" support
 function getExpressionString(expression: Algebra.Expression): string {
   if (expression.expressionType === Algebra.expressionTypes.TERM) {
     const term = expression.term;
