@@ -1,6 +1,9 @@
-import { translate } from "sparqlalgebrajs";
+import { translate, Algebra } from "sparqlalgebrajs";
 import fs from "fs";
 import { Variable, BaseQuad } from "@rdfjs/types";
+import { Filter } from "sparqlalgebrajs/lib/algebra";
+
+const TERM_ID_SETUP = false;
 
 const query = fs.readFileSync("sparql.rq", "utf8");
 const sparql = translate(query);
@@ -18,6 +21,7 @@ const imports = new Set<string>();
 const patterns: BaseQuad[] = [];
 const varOccurrences: Record<string, [number, number][]> = {};
 const reveals: [number, number][] = [];
+const filters: Map<string, Filter> = new Map();
 let numTriples = 1;
 
 function getVariableId(variable: Variable): number {
@@ -38,7 +42,13 @@ for (const variable of variables) {
   outputVariables.push(getVariableId(variable));
 }
 
-const input = sparql.input;
+let input = sparql.input;
+let filter: Algebra.Expression | null = null;
+
+if (input.type === Algebra.types.FILTER) {
+  filter = input.expression;
+  input = input.input;
+}
 
 if (input.type !== "bgp") {
   throw new Error("Expected a BGP");
@@ -88,12 +98,78 @@ for (const join of joins) {
   }
 }
 
-for (const variable of outputVariables) {
-  outString += `  variables[${variable}] <== triples[${varOccurrences[variable][0][0]}][${varOccurrences[variable][0][1]}];\n`;
+
+if (filter) {
+  const expression = filter;
+
+  if (expression.expressionType !== Algebra.expressionTypes.OPERATOR) {
+    throw new Error("Only operator expressions are currently supported in filters");
+  }
+
+  const operator = expression.operator;
+
+  if (operator !== ">" && operator !== "<" && operator !== "=" && operator !== "!=" && operator !== ">=" && operator !== "<=") {
+    throw new Error("Only comparison operators are currently supported in filters");
+  }
+
+  if (expression.args.length !== 2) {
+    throw new Error("Only binary operator expressions are currently supported in filters");
+  }
+
+  // For now we skip any work relying on coercions 
+  // if (operator === ">") {
+  //   const left = expression.args[0];
+  //   const right = expression.args[1];
+
+  //   if (left.expressionType !== Algebra.expressionTypes.TERM || right.expressionType !== Algebra.expressionTypes.TERM) {
+  //     throw new Error("Only term expressions are currently supported in filters");
+  //   }
+  // }
+
+  input = input.input;
+}
+
+outString += `\n`;
+
+for (let i = 0; i < outputVariables.length; i++) {
+  const variable = outputVariables[i];
+  outString += `  variables[${i}] <== triples[${varOccurrences[variable][0][0]}][${varOccurrences[variable][0][1]}];\n`;
+}
+
+outString += `\n`;
+
+for (let i = 0; i < reveals.length; i++) {
+  const reveal = reveals[i];
+  outString += `  reveals[${i}] <== triples[${reveal[0]}][${reveal[1]}];\n`;
+}
+
+outString += `\n`;
+
+// Add constraints for any unconstrained signals
+const usedSignals = new Set<string>();
+for (const join of joins) {
+  for (const occurrence of join) {
+    usedSignals.add(`${occurrence[0]}:${occurrence[1]}`);
+  }
+}
+
+for (let i = 0; i < outputVariables.length; i++) {
+  const variable = outputVariables[i];
+  const occurrence = varOccurrences[variable][0];
+  usedSignals.add(`${occurrence[0]}:${occurrence[1]}`);
 }
 
 for (const reveal of reveals) {
-  outString += `  reveals[${reveal[0]}] <== triples[${reveal[0]}][${reveal[1]}];\n`;
+  usedSignals.add(`${reveal[0]}:${reveal[1]}`);
+}
+
+// Constrain any unused signals to ensure they are valid
+for (let i = 0; i < numTriples; i++) {
+  for (let j = 0; j < 3; j++) {
+    if (!usedSignals.has(`${i}:${j}`)) {
+      outString += `  triples[${i}][${j}] * 0 === 0;\n`;
+    }
+  }
 }
 
 outString += `\n`;

@@ -3,23 +3,31 @@ import { Circomkit } from "circomkit";
 async function main() {
   // create circomkit
   const circomkit = new Circomkit({
-    protocol: "groth16",
+    protocol: "plonk",
   });
 
   // artifacts output at `build/sparql_age_jesse` directory
-  await circomkit.compile("sparql_age_jesse", {
-    file: "sparql_age",
-    template: "AgeVerifier",
+  await circomkit.compile("query_test", {
+    file: "query",
+    template: "QueryVerifier",
     params: [],
   });
 
   // proof & public signals at `build/sparql_age_jesse/my_input` directory
-  await circomkit.prove("sparql_age_jesse", "my_input", { 
-    "triples": [[0, 1, 19]]
+  console.time("Proof generation");
+  await circomkit.prove("query_test", "my_input", { 
+    "triples": [
+      [0, 1, 19],
+      [0, 1, 20],
+    ]
    });
+  console.timeEnd("Proof generation");
 
   // verify with proof & public signals at `build/sparql_age_jesse/my_input`
-  const ok = await circomkit.verify("sparql_age_jesse", "my_input");
+  console.time("Proof verification");
+  const ok = await circomkit.verify("query_test", "my_input");
+  console.timeEnd("Proof verification");
+  
   if (ok) {
     circomkit.log.log("Proof verified!", "success");
   } else {

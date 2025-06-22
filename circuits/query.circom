@@ -6,8 +6,13 @@ template QueryVerifier() {
   signal output reveals[2];
 
   triples[0][0] === triples[1][0];
+
   variables[0] <== triples[0][0];
+
   reveals[0] <== triples[0][1];
   reveals[1] <== triples[1][1];
+
+  triples[0][2] * 0 === 0;
+  triples[1][2] * 0 === 0;
 
 }

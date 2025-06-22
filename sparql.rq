@@ -1,4 +1,10 @@
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+PREFIX xs: <http://www.w3.org/2001/XMLSchema#>
+
 SELECT ?person WHERE {
-  ?person <http://xmlns.com/foaf/0.1/age> ?age .
-  ?person <http://xmlns.com/foaf/0.1/knows> ?friend .
+  ?person foaf:age ?age .
+  ?person foaf:knows ?friend .
+
+  FILTER (?age > xs:integer(18))
+  # FILTER (?age < xs:integer(25))
 }

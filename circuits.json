@@ -40,5 +40,10 @@
     "file": "sparql_age",
     "template": "AgeVerifier",
     "params": []
+  },
+  "query": {
+    "file": "query",
+    "template": "QueryVerifier",
+    "params": []
   }
 }
