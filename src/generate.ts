@@ -78,13 +78,7 @@ for (let i = 0; i < patterns.length; i++) {
 
 const joins = Object.values(varOccurrences).filter(v => v.length > 1);
 
-
-let outString = `pragma circom 2.0.0;\n\n`;
-
-// Add imports
-for (const imp of imports) {
-  outString += `include "${imp}";\n`;
-}
+let outString = '';
 
 // Add template
 outString += `template QueryVerifier() {\n`;
@@ -98,8 +92,47 @@ for (const join of joins) {
   }
 }
 
+function getExpressionString(expression: Algebra.Expression): string {
+  if (expression.expressionType === Algebra.expressionTypes.TERM) {
+    const term = expression.term;
+    if (term.termType === "Variable") {
+      return `triples[${varOccurrences[getVariableId(term)][0][0]}][${varOccurrences[getVariableId(term)][0][1]}]`;
+    }
+    throw new Error("Only variable term expressions are currently supported in filters");
+  }
+  if (expression.expressionType === Algebra.expressionTypes.NAMED && expression.name.termType === "NamedNode" && expression.name.value === "http://www.w3.org/2001/XMLSchema#integer") {
+    if (expression.args.length !== 1) {
+      throw new Error("Only unary operator expressions are currently supported in filters");
+    }
+    const arg = expression.args[0];
+    if (arg.expressionType === Algebra.expressionTypes.TERM) {
+      const term = arg.term;
+      if (term.termType !== "Literal") {
+        throw new Error("Only literal expressions are currently supported in filters");
+      }
+      if (term.datatype.termType !== "NamedNode" || term.datatype.value !== "http://www.w3.org/2001/XMLSchema#integer") {
+        throw new Error("Only integer literals are currently supported in filters");
+      }
+      return `${term.value}`;
+    }
+  }
+  throw new Error("Only term and some named expressions are currently supported in filters");
+}
+
+let f = 0;
+
+const OperatorMapping = {
+  ">": "GreaterThan",
+  "<": "LessThan",
+  "=": "IsEqual",
+  "!=": "IsEqual",
+  ">=": "GreaterEqThan",
+  "<=": "LessEqThan",
+}
 
 if (filter) {
+  outString += `\n`;
+
   const expression = filter;
 
   if (expression.expressionType !== Algebra.expressionTypes.OPERATOR) {
@@ -117,14 +150,17 @@ if (filter) {
   }
 
   // For now we skip any work relying on coercions 
-  // if (operator === ">") {
-  //   const left = expression.args[0];
-  //   const right = expression.args[1];
+  const left = expression.args[0];
+  const right = expression.args[1];
 
-  //   if (left.expressionType !== Algebra.expressionTypes.TERM || right.expressionType !== Algebra.expressionTypes.TERM) {
-  //     throw new Error("Only term expressions are currently supported in filters");
-  //   }
-  // }
+  imports.add("circomlib/circuits/comparators.circom");
+
+  outString += `  component f${f} = ${OperatorMapping[operator]}(32);\n`;
+  outString += `  f${f}.in[0] <== ${getExpressionString(left)};\n`;
+  outString += `  f${f}.in[1] <== ${getExpressionString(right)};\n`;
+  outString += `  f${f}.out === ${operator === "!=" ? 0 : 1};\n`;
+
+  f++;
 
   input = input.input;
 }
@@ -163,6 +199,20 @@ for (const reveal of reveals) {
   usedSignals.add(`${reveal[0]}:${reveal[1]}`);
 }
 
+// Add signals used in filters to the used set
+if (filter) {
+  const expression = filter;
+  if (expression.expressionType === Algebra.expressionTypes.OPERATOR) {
+    for (const arg of expression.args) {
+      if (arg.expressionType === Algebra.expressionTypes.TERM && arg.term.termType === "Variable") {
+        const varId = getVariableId(arg.term);
+        const occurrence = varOccurrences[varId][0];
+        usedSignals.add(`${occurrence[0]}:${occurrence[1]}`);
+      }
+    }
+  }
+}
+
 // Constrain any unused signals to ensure they are valid
 for (let i = 0; i < numTriples; i++) {
   for (let j = 0; j < 3; j++) {
@@ -175,7 +225,18 @@ for (let i = 0; i < numTriples; i++) {
 outString += `\n`;
 outString += `}\n`;
 
-fs.writeFileSync("circuits/query.circom", outString);
+
+let startString = `pragma circom 2.0.0;\n\n`;
+
+// Add imports
+for (const imp of imports) {
+  startString += `include "${imp}";\n`;
+}
+
+startString += `\n`;
+
+
+fs.writeFileSync("circuits/query.circom", startString + outString);
 
 // Optimisation Notes:
 // - We do NOT need to perform checks on disclosed values within the circuit:
