@@ -19,9 +19,10 @@ const variableMap = new Map<string, number>();
 const outputVariables: number[] = [];
 const imports = new Set<string>();
 const patterns: BaseQuad[] = [];
-const varOccurrences: Record<string, [number, number][]> = {};
-const reveals: [number, number][] = [];
+const varOccurrences: Record<number, [number, 0 | 1 | 2][]> = {};
+const reveals: [number, 0 | 1 | 2][] = [];
 const filters: Map<string, Filter> = new Map();
+const varsRequiringPropertyProof = new Set<number>();
 let numTriples = 1;
 
 function getVariableId(variable: Variable): number {
@@ -64,11 +65,11 @@ for (let i = 0; i < patterns.length; i++) {
   for (let j = 0; j < 3; j++) {
     const term = pattern[ord[j]];
     if (term.termType === "Variable") {
-      (varOccurrences[getVariableId(term)] ??= []).push([i, j]);
+      (varOccurrences[getVariableId(term)] ??= []).push([i, j as 0 | 1 | 2]);
     } else if (term.termType === "BlankNode") {
       throw new Error("Unexpected blank node, should have been removed in preprocessing");
     } else {
-      reveals.push([i, j]);
+      reveals.push([i, j as 0 | 1 | 2]);
     }
   }
   if (pattern.graph.termType !== "DefaultGraph") {
@@ -79,12 +80,6 @@ for (let i = 0; i < patterns.length; i++) {
 const joins = Object.values(varOccurrences).filter(v => v.length > 1);
 
 let outString = '';
-
-// Add template
-outString += `template QueryVerifier() {\n`;
-outString += `  signal input triples[${numTriples}][3];\n`;
-outString += `  signal output variables[${outputVariables.length}];\n`;
-outString += `  signal output reveals[${reveals.length}];\n\n`;
 
 for (const join of joins) {
   for (let i = 1; i < join.length; i++) {
@@ -97,6 +92,7 @@ function getExpressionString(expression: Algebra.Expression): string {
   if (expression.expressionType === Algebra.expressionTypes.TERM) {
     const term = expression.term;
     if (term.termType === "Variable") {
+      varsRequiringPropertyProof.add(getVariableId(term));
       return `triples[${varOccurrences[getVariableId(term)][0][0]}][${varOccurrences[getVariableId(term)][0][1]}]`;
     }
     throw new Error("Only variable term expressions are currently supported in filters");
@@ -262,10 +258,31 @@ for (const imp of imports) {
   startString += `include "${imp}";\n`;
 }
 
+const termsToInclude = [...varsRequiringPropertyProof]
+  .map(v => varOccurrences[v][0])
+  .sort((a, b) => (a[0] - b[0]) * patterns.length * 3 + (a[1] - b[1]));
+
 startString += `\n`;
 
+// Add template
+startString += `template QueryVerifier() {\n`;
+startString += `  signal input triples[${numTriples}][3];\n`;
+// startString += `  signal input termInputs[${termsToInclude.length}][128];\n`;
+startString += `  signal output variables[${outputVariables.length}];\n`;
+startString += `  signal output reveals[${reveals.length}];\n\n`;
+
+startString += `\n`;
 
 fs.writeFileSync("circuits/query.circom", startString + outString);
+fs.writeFileSync("circuits/artefacts/query.json", JSON.stringify({
+  // These are the terms that must be provided to the circuit as input
+  // to check properties 
+  "termInputs": termsToInclude,
+  // These are the mapping to variable names in the output
+  "variables": variables.map(v => v.value),
+  // These are the terms that must be directly disclosed
+  "reveals": reveals,
+}, null, 2));
 
 // Optimisation Notes:
 // - We do NOT need to perform checks on disclosed values within the circuit:

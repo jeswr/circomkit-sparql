@@ -1,0 +1,21 @@
+{
+  "termInputs": [
+    [
+      0,
+      2
+    ]
+  ],
+  "variables": [
+    "person"
+  ],
+  "reveals": [
+    [
+      0,
+      1
+    ],
+    [
+      1,
+      1
+    ]
+  ]
+}

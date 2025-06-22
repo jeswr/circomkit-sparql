@@ -19,32 +19,45 @@ function getIndex(term: Term) {
   }
 }
 
+const idToPos = {
+  0: 'subject',
+  1: 'predicate',
+  2: 'object',
+} as const;
+
 function createInput(params: {
   quads: Quad[],
-  reveal: [number, number][]
+  reveal: [number, 0 | 1 | 2][]
 }) {
-  const terms: string[] = [];
-  const bnodes: string[] = [];
-  // const datatypes:
-  const triples: [number, number, number][] = [];
 
-  function addTerm(term: Term) {
-    if (term.termType === "NamedNode" && !mappings.includes(term.value) && !terms.includes(term.value)) {
-      terms.push(term.value);
-    }
-    if (term.termType === "BlankNode" && !bnodes.includes(term.value)) {
-      bnodes.push(term.value);
-    }
-  }
+  const terms = params
+    .reveal
+    .map(([triple, pos]) => params.quads[triple][idToPos[pos]]);
 
-  for (const triple of params.quads) {
-    forEachTerms(triple, (term) => {
-      addTerm(term);
-      if (term.termType === "Literal") {
-        addTerm(term.datatype);
-      }
-    });
-  }
+  console.log(terms);
 
-  console.log(terms, bnodes);
+  // const terms: string[] = [];
+  // const bnodes: string[] = [];
+  // // const datatypes:
+  // const triples: [number, number, number][] = [];
+
+  // function addTerm(term: Term) {
+  //   if (term.termType === "NamedNode" && !mappings.includes(term.value) && !terms.includes(term.value)) {
+  //     terms.push(term.value);
+  //   }
+  //   if (term.termType === "BlankNode" && !bnodes.includes(term.value)) {
+  //     bnodes.push(term.value);
+  //   }
+  // }
+
+  // for (const triple of params.quads) {
+  //   forEachTerms(triple, (term) => {
+  //     addTerm(term);
+  //     if (term.termType === "Literal") {
+  //       addTerm(term.datatype);
+  //     }
+  //   });
+  // }
+
+  // console.log(terms, bnodes);
 }
