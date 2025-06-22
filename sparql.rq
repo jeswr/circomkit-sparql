@@ -6,5 +6,6 @@ SELECT ?person WHERE {
   ?person foaf:knows ?friend .
 
   FILTER (?age >= xs:integer(18))
-  # FILTER (?age < xs:integer(25))
+  FILTER (?age < xs:integer(25))
+  FILTER (?age != xs:integer(20))
 }

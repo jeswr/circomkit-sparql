@@ -122,46 +122,61 @@ function getExpressionString(expression: Algebra.Expression): string {
 let f = 0;
 
 const OperatorMapping = {
-  ">": "GreaterThan",
-  "<": "LessThan",
-  "=": "IsEqual",
-  "!=": "IsEqual",
-  ">=": "GreaterEqThan",
-  "<=": "LessEqThan",
+  ">": "GreaterThan(32)",
+  "<": "LessThan(32)",
+  "=": "IsEqual()",
+  "!=": "IsEqual()",
+  ">=": "GreaterEqThan(32)",
+  "<=": "LessEqThan(32)",
+}
+
+function handleFilterExpression(expression: Algebra.Expression): void {
+  if (expression.expressionType === Algebra.expressionTypes.OPERATOR) {
+    const operator = expression.operator;
+    
+    // Handle AND operations
+    if (operator === "&&") {
+      if (expression.args.length !== 2) {
+        throw new Error("AND operator must have exactly 2 arguments");
+      }
+      
+      // Recursively handle both sides of the AND
+      handleFilterExpression(expression.args[0]);
+      outString += `\n`;
+      handleFilterExpression(expression.args[1]);
+      return;
+    }
+
+    // Handle comparison operators
+    if (operator === ">" || operator === "<" || operator === "=" || operator === "!=" || operator === ">=" || operator === "<=") {
+      if (expression.args.length !== 2) {
+        throw new Error("Only binary operator expressions are currently supported in filters");
+      }
+
+      // For now we skip any work relying on coercions 
+      const left = expression.args[0];
+      const right = expression.args[1];
+
+      imports.add("circomlib/circuits/comparators.circom");
+
+      outString += `  component f${f} = ${OperatorMapping[operator]};\n`;
+      outString += `  f${f}.in[0] <== ${getExpressionString(left)};\n`;
+      outString += `  f${f}.in[1] <== ${getExpressionString(right)};\n`;
+      outString += `  f${f}.out === ${operator === "!=" ? 0 : 1};\n`;
+
+      f++;
+      return;
+    }
+    
+    throw new Error(`Unsupported operator: ${operator}. Only comparison operators (>, <, =, !=, >=, <=) and && are supported`);
+  }
+  
+  throw new Error("Only operator expressions are currently supported in filters");
 }
 
 if (filter) {
   outString += `\n`;
-
-  const expression = filter;
-
-  if (expression.expressionType !== Algebra.expressionTypes.OPERATOR) {
-    throw new Error("Only operator expressions are currently supported in filters");
-  }
-
-  const operator = expression.operator;
-
-  if (operator !== ">" && operator !== "<" && operator !== "=" && operator !== "!=" && operator !== ">=" && operator !== "<=") {
-    throw new Error("Only comparison operators are currently supported in filters");
-  }
-
-  if (expression.args.length !== 2) {
-    throw new Error("Only binary operator expressions are currently supported in filters");
-  }
-
-  // For now we skip any work relying on coercions 
-  const left = expression.args[0];
-  const right = expression.args[1];
-
-  imports.add("circomlib/circuits/comparators.circom");
-
-  outString += `  component f${f} = ${OperatorMapping[operator]}(32);\n`;
-  outString += `  f${f}.in[0] <== ${getExpressionString(left)};\n`;
-  outString += `  f${f}.in[1] <== ${getExpressionString(right)};\n`;
-  outString += `  f${f}.out === ${operator === "!=" ? 0 : 1};\n`;
-
-  f++;
-
+  handleFilterExpression(filter);
   input = input.input;
 }
 
@@ -200,9 +215,18 @@ for (const reveal of reveals) {
 }
 
 // Add signals used in filters to the used set
-if (filter) {
-  const expression = filter;
+function collectFilterVariables(expression: Algebra.Expression): void {
   if (expression.expressionType === Algebra.expressionTypes.OPERATOR) {
+    const operator = expression.operator;
+    
+    if (operator === "&&") {
+      // Recursively collect variables from both sides of AND
+      collectFilterVariables(expression.args[0]);
+      collectFilterVariables(expression.args[1]);
+      return;
+    }
+    
+    // For comparison operators, collect variables from arguments
     for (const arg of expression.args) {
       if (arg.expressionType === Algebra.expressionTypes.TERM && arg.term.termType === "Variable") {
         const varId = getVariableId(arg.term);
@@ -211,6 +235,10 @@ if (filter) {
       }
     }
   }
+}
+
+if (filter) {
+  collectFilterVariables(filter);
 }
 
 // Constrain any unused signals to ensure they are valid
