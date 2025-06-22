@@ -4,13 +4,15 @@
     "start": "npx ts-node ./src/index.ts",
     "generate": "npx ts-node ./src/generate.ts",
     "test": "npx mocha",
-    "input": "npx ts-node ./src/createMockInput.ts"
+    "input": "npx ts-node ./src/createMockInput.ts",
+    "demo": "rm -rf build && npm run generate && npm run input && npm run start"
   },
   "dependencies": {
     "@rdfjs/types": "^2.0.1",
     "circomkit": "^0.3.3",
     "circomlib": "^2.0.5",
     "rdf-dereference-store": "^1.4.0",
+    "rdf-string-ttl": "^2.0.1",
     "rdf-terms": "^2.0.0",
     "sparqlalgebrajs": "^5.0.1"
   },

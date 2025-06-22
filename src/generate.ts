@@ -113,6 +113,8 @@ function getExpressionString(expression: Algebra.Expression): string {
       return `${term.value}`;
     }
   }
+
+  console.log(expression);
   throw new Error("Only term and some named expressions are currently supported in filters");
 }
 
@@ -262,12 +264,14 @@ const termsToInclude = [...varsRequiringPropertyProof]
   .map(v => varOccurrences[v][0])
   .sort((a, b) => (a[0] - b[0]) * patterns.length * 3 + (a[1] - b[1]));
 
+// TODO: FUTURE NUMERIC SPECIFIC AFFORDANCES
+
 startString += `\n`;
 
 // Add template
 startString += `template QueryVerifier() {\n`;
 startString += `  signal input triples[${numTriples}][3];\n`;
-// startString += `  signal input termInputs[${termsToInclude.length}][128];\n`;
+startString += `  signal input terms[${termsToInclude.length}][128];\n`;
 startString += `  signal output variables[${outputVariables.length}];\n`;
 startString += `  signal output reveals[${reveals.length}];\n\n`;
 

@@ -1,4 +1,5 @@
 import { Circomkit } from "circomkit";
+import fs from "fs";
 
 async function main() {
   // create circomkit
@@ -15,12 +16,7 @@ async function main() {
 
   // proof & public signals at `build/sparql_age_jesse/my_input` directory
   console.time("Proof generation");
-  await circomkit.prove("query_test", "my_input", { 
-    "triples": [
-      [0, 1, 19],
-      [0, 1, 20],
-    ]
-   });
+  await circomkit.prove("query_test", "my_input", JSON.parse(fs.readFileSync("circuits/artefacts/my_input.json", "utf8")));
   console.timeEnd("Proof generation");
 
   // verify with proof & public signals at `build/sparql_age_jesse/my_input`

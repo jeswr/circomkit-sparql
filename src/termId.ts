@@ -64,7 +64,9 @@ function getIndex(term: Term): [number, ...number[]] {
           case "http://www.w3.org/2001/XMLSchema#yearMonthDuration":
             return [19, ...stringToInts(term.value)];
           default:
-            // Other typed literal
+            // TODO: Handle the custom datatype
+            throw new Error(`Unknown datatype: ${datatypeIRI}`);
+          // Other typed literal
             return [20, ...stringToInts(term.value)];
         }
       }

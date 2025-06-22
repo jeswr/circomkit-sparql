@@ -2,22 +2,9 @@ import { dereferenceToStore } from "rdf-dereference-store";
 import mappings from "./mappings.json";
 import { forEachTerms } from "rdf-terms";
 import { Term, Quad } from "@rdfjs/types";
-
-function getIndex(term: Term) {
-  switch (term.termType) {
-    case "NamedNode":
-      return 0;
-    case "BlankNode":
-      return 1;
-    case "Literal":
-      if (term.language) {
-        return 2;
-      }
-      if (term.datatype && term.datatype.value === "http://www.w3.org/2001/XMLSchema#integer") {
-        return 3;
-      }
-  }
-}
+import { getIndex } from "./termId";
+import { termToString } from "rdf-string-ttl";
+import fs from "fs";
 
 const idToPos = {
   0: 'subject',
@@ -27,14 +14,26 @@ const idToPos = {
 
 function createInput(params: {
   quads: Quad[],
-  reveal: [number, 0 | 1 | 2][]
+  termInputs: [number, 0 | 1 | 2][]
 }) {
+  let i = 0;
+  const map = new Map<string, number>();
+  function getId(term: Term) {
+    const key = termToString(term);
+    if (!map.has(key)) {
+      map.set(key, i++);
+    }
+    return map.get(key);
+  }
 
   const terms = params
-    .reveal
-    .map(([triple, pos]) => params.quads[triple][idToPos[pos]]);
+    .termInputs
+    .map(([triple, pos]) => getIndex(params.quads[triple][idToPos[pos]]));
 
-  console.log(terms);
+  return {
+    triples: params.quads.map((quad) => [getId(quad.subject), getId(quad.predicate), getId(quad.object)]),
+    terms,
+  }
 
   // const terms: string[] = [];
   // const bnodes: string[] = [];
@@ -61,3 +60,12 @@ function createInput(params: {
 
   // console.log(terms, bnodes);
 }
+
+dereferenceToStore("data.ttl", { localFiles: true })
+  .then(({ store }) => {
+    const sampleInput = createInput({
+      quads: [...store],
+      termInputs: JSON.parse(fs.readFileSync("circuits/artefacts/query.json", "utf8")).termInputs,
+    });
+    fs.writeFileSync("circuits/artefacts/my_input.json", JSON.stringify(sampleInput, null, 2));
+  });
