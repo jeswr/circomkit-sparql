@@ -13,19 +13,21 @@ template QueryVerifier() {
   triples[0][0] === triples[2][0];
 
   component f0 = GreaterEqThan(32);
-  f0.in[0] <== triples[0][2];
+  f0.in[0] <== terms[0][1];
   f0.in[1] <== 18;
   f0.out === 1;
 
   component f1 = LessThan(32);
-  f1.in[0] <== triples[0][2];
+  f1.in[0] <== terms[0][1];
   f1.in[1] <== 25;
   f1.out === 1;
 
   component f2 = IsEqual();
-  f2.in[0] <== triples[0][2];
+  f2.in[0] <== terms[0][1];
   f2.in[1] <== 20;
   f2.out === 0;
+
+  terms[0][0] === 5;
 
   variables[0] <== triples[0][0];
 

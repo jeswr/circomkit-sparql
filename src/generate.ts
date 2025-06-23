@@ -22,7 +22,9 @@ const patterns: BaseQuad[] = [];
 const varOccurrences: Record<number, [number, 0 | 1 | 2][]> = {};
 const reveals: [number, 0 | 1 | 2][] = [];
 const filters: Map<string, Filter> = new Map();
-const varsRequiringPropertyProof = new Set<number>();
+// const varsRequiringPropertyProof = new Set<number>();
+const varsRequiringPropertyProof: number[] = [];
+const termTypeConstraints: string[] = [];
 let numTriples = 1;
 
 function getVariableId(variable: Variable): number {
@@ -92,8 +94,19 @@ function getExpressionString(expression: Algebra.Expression): string {
   if (expression.expressionType === Algebra.expressionTypes.TERM) {
     const term = expression.term;
     if (term.termType === "Variable") {
-      varsRequiringPropertyProof.add(getVariableId(term));
-      return `triples[${varOccurrences[getVariableId(term)][0][0]}][${varOccurrences[getVariableId(term)][0][1]}]`;
+      // Confirm that the term is an integer
+      // varsRequiringPropertyProof.add(getVariableId(term));
+      if (!varsRequiringPropertyProof.includes(getVariableId(term))) {
+        varsRequiringPropertyProof.push(getVariableId(term));
+      }
+
+      const ind = varsRequiringPropertyProof.indexOf(getVariableId(term));
+      const constraint = `  terms[${ind}][0] === 5;`;
+      if (!termTypeConstraints.includes(constraint)) {
+        termTypeConstraints.push(constraint);
+      }
+      return `terms[${ind}][1]`;
+      // return `triples[${varOccurrences[getVariableId(term)][0][0]}][${varOccurrences[getVariableId(term)][0][1]}]`;
     }
     throw new Error("Only variable term expressions are currently supported in filters");
   }
@@ -179,6 +192,14 @@ if (filter) {
   input = input.input;
 }
 
+// Add term type constraints
+if (termTypeConstraints.length > 0) {
+  outString += `\n`;
+  for (const constraint of termTypeConstraints) {
+    outString += constraint + `\n`;
+  }
+}
+
 outString += `\n`;
 
 for (let i = 0; i < outputVariables.length; i++) {
@@ -260,9 +281,9 @@ for (const imp of imports) {
   startString += `include "${imp}";\n`;
 }
 
-const termsToInclude = [...varsRequiringPropertyProof]
+const termsToInclude = varsRequiringPropertyProof
   .map(v => varOccurrences[v][0])
-  .sort((a, b) => (a[0] - b[0]) * patterns.length * 3 + (a[1] - b[1]));
+  // .sort((a, b) => (a[0] - b[0]) * patterns.length * 3 + (a[1] - b[1]));
 
 // TODO: FUTURE NUMERIC SPECIFIC AFFORDANCES
 
