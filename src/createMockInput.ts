@@ -69,3 +69,6 @@ dereferenceToStore("data.ttl", { localFiles: true })
     });
     fs.writeFileSync("circuits/artefacts/my_input.json", JSON.stringify(sampleInput, null, 2));
   });
+
+
+  

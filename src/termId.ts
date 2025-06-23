@@ -1,14 +1,5 @@
 import { Term } from "@rdfjs/types";
-
-function stringToInts(str: string): number[] {
-  let utf8Encode = new TextEncoder();
-  // Pad this out to have a length of 128 and error if it's too long
-  let ints = Array.from(utf8Encode.encode(str));
-  if (ints.length > 127) {
-    throw new Error("Term is too long");
-  }
-  return ints.concat(Array(127 - ints.length).fill(0));
-}
+import { stringToInts } from "./utils";
 
 function getIndex(term: Term): [number, ...number[]] {
   switch (term.termType) {
