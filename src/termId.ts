@@ -4,10 +4,10 @@ function stringToInts(str: string): number[] {
   let utf8Encode = new TextEncoder();
   // Pad this out to have a length of 128 and error if it's too long
   let ints = Array.from(utf8Encode.encode(str));
-  if (ints.length > 127) {
+  if (ints.length > 128) {
     throw new Error("Term is too long");
   }
-  return ints.concat(Array(127 - ints.length).fill(0));
+  return ints.concat(Array(128 - ints.length).fill(0));
 }
 
 function getIndex(term: Term): [number, ...number[]] {
@@ -15,7 +15,7 @@ function getIndex(term: Term): [number, ...number[]] {
     case "NamedNode":
       return [0, ...stringToInts(term.value)];
     case "BlankNode":
-      return [1, ...stringToInts("")];
+      return [1, ...stringToInts(term.value)];
     case "Literal":
       // Language-tagged literal
       if (term.language) {
