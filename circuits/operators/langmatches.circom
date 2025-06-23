@@ -1,7 +1,7 @@
 pragma circom 2.0.0;
 
-template LangMatches(length) {
-  signal input str[length];
+template Lang() {
+  signal input in[128];
   signal input prefix[length];
   signal output out;
 

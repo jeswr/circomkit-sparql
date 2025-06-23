@@ -4,7 +4,7 @@ include "circomlib/circuits/comparators.circom";
 
 template QueryVerifier() {
   signal input triples[3][3];
-  signal input terms[1][128];
+  signal input terms[3][128];
   signal output variables[1];
   signal output reveals[3];
 
@@ -27,6 +27,17 @@ template QueryVerifier() {
   f2.in[1] <== 20;
   f2.out === 0;
 
+  terms[1][0] === 0;
+
+  component notZero2 = IsEqual();
+  notZero2.in[0] <== terms[2][0];
+  notZero2.in[1] <== 0;
+  notZero2.out === 0;
+  component notOne2 = IsEqual();
+  notOne2.in[0] <== terms[2][0];
+  notOne2.in[1] <== 1;
+  notOne2.out === 0;
+
   terms[0][0] === 5;
 
   variables[0] <== triples[0][0];
@@ -35,7 +46,5 @@ template QueryVerifier() {
   reveals[1] <== triples[1][1];
   reveals[2] <== triples[2][1];
 
-  triples[1][2] * 0 === 0;
-  triples[2][2] * 0 === 0;
 
 }

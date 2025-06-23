@@ -101,6 +101,8 @@ function getExpressionString(expression: Algebra.Expression): string {
       }
 
       const ind = varsRequiringPropertyProof.indexOf(getVariableId(term));
+
+      // Checks that the term is an integer
       const constraint = `  terms[${ind}][0] === 5;`;
       if (!termTypeConstraints.includes(constraint)) {
         termTypeConstraints.push(constraint);
@@ -177,6 +179,37 @@ function handleFilterExpression(expression: Algebra.Expression): void {
       outString += `  f${f}.out === ${operator === "!=" ? 0 : 1};\n`;
 
       f++;
+      return;
+    } else if (operator === "isiri" || operator === "isliteral" || operator === "isblank") {
+      if (expression.args.length !== 1) {
+        throw new Error("isIRI operator must have exactly 1 argument");
+      }
+      const arg = expression.args[0];
+      if (arg.expressionType !== Algebra.expressionTypes.TERM || arg.term.termType !== "Variable") {
+        throw new Error("isIRI operator must have a variable argument");
+      }
+      if (!varsRequiringPropertyProof.includes(getVariableId(arg.term))) {
+        varsRequiringPropertyProof.push(getVariableId(arg.term));
+      }
+
+      const ind = varsRequiringPropertyProof.indexOf(getVariableId(arg.term));
+
+      // Checks that the term is an integer
+      if (operator === "isiri") {
+        outString += `  terms[${ind}][0] === 0;\n`;
+      } else if (operator === "isblank") {
+        outString += `  terms[${ind}][0] === 1;\n`;
+      } else if (operator === "isliteral") {
+        imports.add("circomlib/circuits/comparators.circom");
+        outString += `  component notZero${ind} = IsEqual();\n`;
+        outString += `  notZero${ind}.in[0] <== terms[${ind}][0];\n`;
+        outString += `  notZero${ind}.in[1] <== 0;\n`;
+        outString += `  notZero${ind}.out === 0;\n`;
+        outString += `  component notOne${ind} = IsEqual();\n`;
+        outString += `  notOne${ind}.in[0] <== terms[${ind}][0];\n`;
+        outString += `  notOne${ind}.in[1] <== 1;\n`;
+        outString += `  notOne${ind}.out === 0;\n`;
+      }
       return;
     }
     
