@@ -189,7 +189,6 @@ function handleFilterExpression(expression: Algebra.Expression): void {
         }
   
         const ind = varsRequiringPropertyProof.indexOf(getVariableId(lang));
-  
 
         outString += `  component fl${f} = Lang();\n`;
         outString += `  component fle${f} = StringEquals();\n`;
