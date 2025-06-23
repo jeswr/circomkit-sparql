@@ -1,13 +1,13 @@
 import { Term } from "@rdfjs/types";
 
-function stringToInts(str: string): number[] {
+function stringToInts(str: string, size = 127): number[] {
   let utf8Encode = new TextEncoder();
   // Pad this out to have a length of 128 and error if it's too long
   let ints = Array.from(utf8Encode.encode(str));
-  if (ints.length > 128) {
+  if (ints.length > size) {
     throw new Error("Term is too long");
   }
-  return ints.concat(Array(128 - ints.length).fill(0));
+  return ints.concat(Array(size - ints.length).fill(0));
 }
 
 function getIndex(term: Term): [number, ...number[]] {
@@ -19,7 +19,7 @@ function getIndex(term: Term): [number, ...number[]] {
     case "Literal":
       // Language-tagged literal
       if (term.language) {
-        return [2, ...stringToInts(term.language)];
+        return [2, ...stringToInts(term.language, 8), ...stringToInts(term.value, 119)];
       }
       
       // Typed literals - check datatype
@@ -64,13 +64,10 @@ function getIndex(term: Term): [number, ...number[]] {
           case "http://www.w3.org/2001/XMLSchema#yearMonthDuration":
             return [19, ...stringToInts(term.value)];
           default:
-            // TODO: Handle the custom datatype
-            throw new Error(`Unknown datatype: ${datatypeIRI}`);
-          // Other typed literal
-            return [20, ...stringToInts(term.value)];
+            return [20, ...stringToInts(term.datatype.value, 63), ...stringToInts(term.value,  64)];
         }
       }
-      
+
       // Plain literal (no datatype, no language)
       return [21, ...stringToInts(term.value)];
     
