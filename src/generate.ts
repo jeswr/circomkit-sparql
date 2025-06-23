@@ -1,121 +1,182 @@
 import { translate, Algebra } from "sparqlalgebrajs";
 import fs from "fs";
 import { Variable, BaseQuad, Term } from "@rdfjs/types";
-import { Filter } from "sparqlalgebrajs/lib/algebra";
-import { stringToInts } from "./termId";
+import { getIndex, stringToInts } from "./termId";
 import { termToString } from "rdf-string-ttl";
-import { convertObject } from "./createMockInput";
 
+// Configuration constants
 const TERM_ID_SETUP = false;
+const TERM_DIMENSIONS = 128;
+const LANG_STRING_LENGTH = 8;
 
-const query = fs.readFileSync("sparql.rq", "utf8");
-const sparql = translate(query);
-
-if (sparql.type !== "project") {
-  throw new Error("Expected a SELECT query");
+// Types for better code organization
+interface CircuitState {
+  varId: number;
+  variables: Variable[];
+  variableMap: Map<string, number>;
+  outputVariables: number[];
+  imports: Set<string>;
+  patterns: BaseQuad[];
+  varOccurrences: Record<number, [number, 0 | 1 | 2][]>;
+  reveals: [number, 0 | 1 | 2, Term][];
+      filters: Map<string, any>;
+  varsRequiringPropertyProof: number[];
+  termTypeConstraints: string[];
+  numTriples: number;
+  negativeCount: number;
+  positiveCount: number;
 }
 
-let varId = 0;
+interface OperatorMapping {
+  [key: string]: string;
+}
 
-const variables = sparql.variables;
-const variableMap = new Map<string, number>();
-const outputVariables: number[] = [];
-const imports = new Set<string>();
-const patterns: BaseQuad[] = [];
-const varOccurrences: Record<number, [number, 0 | 1 | 2][]> = {};
-const reveals: [number, 0 | 1 | 2, Term][] = [];
-const filters: Map<string, Filter> = new Map();
-// const varsRequiringPropertyProof = new Set<number>();
-const varsRequiringPropertyProof: number[] = [];
-const termTypeConstraints: string[] = [];
-let numTriples = 1;
+const OPERATOR_MAPPING: OperatorMapping = {
+  ">": "GreaterThan(32)",
+  "<": "LessThan(32)",
+  "=": "IsEqual()",
+  "!=": "IsEqual()",
+  ">=": "GreaterEqThan(32)",
+  "<=": "LessEqThan(32)",
+};
 
-function getVariableId(variable: Variable): number {
+// Initialize circuit state
+function initializeCircuitState(): CircuitState {
+  return {
+    varId: 0,
+    variables: [],
+    variableMap: new Map<string, number>(),
+    outputVariables: [],
+    imports: new Set<string>(),
+    patterns: [],
+    varOccurrences: {},
+    reveals: [],
+    filters: new Map<string, any>(),
+    varsRequiringPropertyProof: [],
+    termTypeConstraints: [],
+    numTriples: 1,
+    negativeCount: 0,
+    positiveCount: 0,
+  };
+}
+
+// Utility functions
+function getVariableId(state: CircuitState, variable: Variable): number {
   if (variable.termType !== "Variable") {
     throw new Error("Expected a variable");
   }
-  if (variableMap.has(variable.value)) {
-    return variableMap.get(variable.value)!;
+  if (state.variableMap.has(variable.value)) {
+    return state.variableMap.get(variable.value)!;
   }
-  const id = varId;
-  variableMap.set(variable.value, varId);
-  varId++;
+  const id = state.varId;
+  state.variableMap.set(variable.value, state.varId);
+  state.varId++;
   return id;
 }
 
-// Variables to output
-for (const variable of variables) {
-  outputVariables.push(getVariableId(variable));
+function getTermIdString(state: CircuitState, term: Term): string {
+  if (term.termType === "Variable") {
+    const varId = getVariableId(state, term);
+    const occurrence = state.varOccurrences[varId][0];
+    return `triples[${occurrence[0]}][${occurrence[1]}]`;
+  }
+  return `[${getIndex(term).join(", ")}]`;
 }
 
-let input = sparql.input;
-let filter: Algebra.Expression | null = null;
-
-if (input.type === Algebra.types.FILTER) {
-  filter = input.expression;
-  input = input.input;
+// SPARQL algebra processing
+function processSparqlQuery(queryString: string): Algebra.Operation {
+  const sparql = translate(queryString);
+  if (sparql.type !== "project") {
+    throw new Error("Expected a SELECT query");
+  }
+  return sparql;
 }
 
-if (input.type !== "bgp") {
-  throw new Error("Expected a BGP");
+function extractVariables(state: CircuitState, sparql: Algebra.Operation): void {
+  state.variables = sparql.variables;
+  for (const variable of state.variables) {
+    state.outputVariables.push(getVariableId(state, variable));
+  }
 }
 
-patterns.push(...input.patterns);
+function extractPatterns(state: CircuitState, input: Algebra.Operation): Algebra.Operation {
+  let currentInput = input;
+  
+  if (currentInput.type === Algebra.types.FILTER) {
+    currentInput = currentInput.input;
+  }
 
-numTriples = patterns.length;
-const ord = ['subject', 'predicate', 'object'] as const;
+  if (currentInput.type !== "bgp") {
+    throw new Error("Expected a BGP");
+  }
 
-for (let i = 0; i < patterns.length; i++) {
-  const pattern = patterns[i];
-  for (let j = 0; j < 3; j++) {
-    const term = pattern[ord[j]];
-    if (term.termType === "Variable") {
-      (varOccurrences[getVariableId(term)] ??= []).push([i, j as 0 | 1 | 2]);
-    } else if (term.termType === "BlankNode") {
-      throw new Error("Unexpected blank node, should have been removed in preprocessing");
-    } else {
-      reveals.push([i, j as 0 | 1 | 2, term]);
+  state.patterns.push(...currentInput.patterns);
+  state.numTriples = state.patterns.length;
+  
+  return input;
+}
+
+function processPatterns(state: CircuitState): void {
+  const ord = ['subject', 'predicate', 'object'] as const;
+
+  for (let i = 0; i < state.patterns.length; i++) {
+    const pattern = state.patterns[i];
+    for (let j = 0; j < 3; j++) {
+      const term = pattern[ord[j]];
+      if (term.termType === "Variable") {
+        const varId = getVariableId(state, term);
+        (state.varOccurrences[varId] ??= []).push([i, j as 0 | 1 | 2]);
+      } else if (term.termType === "BlankNode") {
+        throw new Error("Unexpected blank node, should have been removed in preprocessing");
+      } else {
+        state.reveals.push([i, j as 0 | 1 | 2, term]);
+      }
+    }
+    if (pattern.graph.termType !== "DefaultGraph") {
+      throw new Error("Expected a default graph");
     }
   }
-  if (pattern.graph.termType !== "DefaultGraph") {
-    throw new Error("Expected a default graph");
-  }
 }
 
-const joins = Object.values(varOccurrences).filter(v => v.length > 1);
+// Circuit generation functions
+function generateJoins(state: CircuitState): string {
+  const joins = Object.values(state.varOccurrences).filter(v => v.length > 1);
+  let output = '';
 
-let outString = '';
-
-for (const join of joins) {
-  for (let i = 1; i < join.length; i++) {
-    outString += `  triples[${join[0][0]}][${join[0][1]}] === triples[${join[i][0]}][${join[i][1]}];\n`;
+  if (joins.length > 0) {
+    output += `  // Joins\n`;
   }
+
+  for (const join of joins) {
+    for (let i = 1; i < join.length; i++) {
+      output += `  triples[${join[0][0]}][${join[0][1]}] === triples[${join[i][0]}][${join[i][1]}];\n`;
+    }
+  }
+
+  return output;
 }
 
-// TODO: Add "OR" support
-function getExpressionString(expression: Algebra.Expression): string {
+function getExpressionString(state: CircuitState, expression: Algebra.Expression): string {
   if (expression.expressionType === Algebra.expressionTypes.TERM) {
     const term = expression.term;
     if (term.termType === "Variable") {
-      // Confirm that the term is an integer
-      // varsRequiringPropertyProof.add(getVariableId(term));
-      if (!varsRequiringPropertyProof.includes(getVariableId(term))) {
-        varsRequiringPropertyProof.push(getVariableId(term));
+      const varId = getVariableId(state, term);
+      if (!state.varsRequiringPropertyProof.includes(varId)) {
+        state.varsRequiringPropertyProof.push(varId);
       }
 
-      const ind = varsRequiringPropertyProof.indexOf(getVariableId(term));
-
-      // Checks that the term is an integer
-      const constraint = `  terms[${ind}][0] === 5;`;
-      if (!termTypeConstraints.includes(constraint)) {
-        termTypeConstraints.push(constraint);
+      const constraint = `  ${getTermIdString(state, term)}[0] === 5;`;
+      if (!state.termTypeConstraints.includes(constraint)) {
+        state.termTypeConstraints.push(constraint);
       }
-      return `terms[${ind}][1]`;
-      // return `triples[${varOccurrences[getVariableId(term)][0][0]}][${varOccurrences[getVariableId(term)][0][1]}]`;
+      return `${getTermIdString(state, term)}[1]`;
     }
     throw new Error("Only variable term expressions are currently supported in filters");
   }
-  if (expression.expressionType === Algebra.expressionTypes.NAMED && expression.name.termType === "NamedNode" && expression.name.value === "http://www.w3.org/2001/XMLSchema#integer") {
+  
+  if (expression.expressionType === Algebra.expressionTypes.NAMED && 
+      expression.name.termType === "NamedNode" && 
+      expression.name.value === "http://www.w3.org/2001/XMLSchema#integer") {
     if (expression.args.length !== 1) {
       throw new Error("Only unary operator expressions are currently supported in filters");
     }
@@ -125,10 +186,11 @@ function getExpressionString(expression: Algebra.Expression): string {
       if (term.termType !== "Literal") {
         throw new Error("Only literal expressions are currently supported in filters");
       }
-      if (term.datatype.termType !== "NamedNode" || term.datatype.value !== "http://www.w3.org/2001/XMLSchema#integer") {
+      if (term.datatype.termType !== "NamedNode" || 
+          term.datatype.value !== "http://www.w3.org/2001/XMLSchema#integer") {
         throw new Error("Only integer literals are currently supported in filters");
       }
-      return `${term.value}`;
+      return term.value;
     }
   }
 
@@ -136,261 +198,342 @@ function getExpressionString(expression: Algebra.Expression): string {
   throw new Error("Only term and some named expressions are currently supported in filters");
 }
 
-let f = 0;
+function handleLangFilter(state: CircuitState, expression: Algebra.OperatorExpression): string {
+  const langArg = expression.args[0] as Algebra.OperatorExpression;
+  const lang = langArg.args[0].term as Variable;
+  const str = (expression.args[1] as Algebra.TermExpression).term.value as string;
 
-const OperatorMapping = {
-  ">": "GreaterThan(32)",
-  "<": "LessThan(32)",
-  "=": "IsEqual()",
-  "!=": "IsEqual()",
-  ">=": "GreaterEqThan(32)",
-  "<=": "LessEqThan(32)",
+  state.imports.add("./operators/langmatches.circom");
+  
+  const varId = getVariableId(state, lang);
+  if (!state.varsRequiringPropertyProof.includes(varId)) {
+    state.varsRequiringPropertyProof.push(varId);
+  }
+
+  const langElements = stringToInts(str, LANG_STRING_LENGTH);
+  let output = '';
+
+  for (let i = 0; i < langElements.length; i++) {
+    output += `  ${getTermIdString(state, lang)}[${i + 1}] === ${langElements[i]};\n`;
+  }
+
+  return output;
 }
 
-function handleFilterExpression(expression: Algebra.Expression): void {
+function handleComparisonFilter(
+  state: CircuitState, 
+  operator: string, 
+  args: Algebra.Expression[], 
+  componentId: number
+): string {
+  state.imports.add("circomlib/circuits/comparators.circom");
+
+  const left = getExpressionString(state, args[0]);
+  const right = getExpressionString(state, args[1]);
+  const expectedResult = operator === "!=" ? 0 : 1;
+
+  return `  component f${componentId} = ${OPERATOR_MAPPING[operator]};\n` +
+         `  f${componentId}.in[0] <== ${left};\n` +
+         `  f${componentId}.in[1] <== ${right};\n` +
+         `  f${componentId}.out === ${expectedResult};\n`;
+}
+
+function handleTypeCheckFilter(state: CircuitState, operator: string, arg: Algebra.Expression): string {
+  if (arg.expressionType !== Algebra.expressionTypes.TERM || arg.term.termType !== "Variable") {
+    throw new Error(`${operator} operator must have a variable argument`);
+  }
+
+  const varId = getVariableId(state, arg.term);
+  if (!state.varsRequiringPropertyProof.includes(varId)) {
+    state.varsRequiringPropertyProof.push(varId);
+  }
+
+  const idString = `triples[${state.varOccurrences[varId][0][0]}][${state.varOccurrences[varId][0][1]}][0]`;
+  const ind = state.varsRequiringPropertyProof.indexOf(varId);
+
+  switch (operator) {
+    case "isiri":
+      return `  ${idString} === 0;\n`;
+    case "isblank":
+      return `  ${idString} === 1;\n`;
+    case "isliteral":
+      state.imports.add("circomlib/circuits/comparators.circom");
+      return `  component notZero${ind} = IsEqual();\n` +
+             `  notZero${ind}.in[0] <== ${idString};\n` +
+             `  notZero${ind}.in[1] <== 0;\n` +
+             `  notZero${ind}.out === 0;\n` +
+             `  component notOne${ind} = IsEqual();\n` +
+             `  notOne${ind}.in[0] <== ${idString};\n` +
+             `  notOne${ind}.in[1] <== 1;\n` +
+             `  notOne${ind}.out === 0;\n`;
+    default:
+      throw new Error(`Unsupported type check operator: ${operator}`);
+  }
+}
+
+function handleNegationFilter(
+  state: CircuitState, 
+  arg: any, 
+  componentCounter: { value: number }
+): string {
+  if (arg.expressionType !== Algebra.expressionTypes.OPERATOR) {
+    throw new Error("Negation can only be applied to operator expressions");
+  }
+
+  const operator = arg.operator;
+  
+  // Handle negated type checks
+  if (["isiri", "isliteral", "isblank"].includes(operator)) {
+    if (arg.args.length !== 1) {
+      throw new Error(`${operator} operator must have exactly 1 argument`);
+    }
+    
+    const varArg = arg.args[0];
+    if (varArg.expressionType !== Algebra.expressionTypes.TERM || varArg.term.termType !== "Variable") {
+      throw new Error(`${operator} operator must have a variable argument`);
+    }
+
+    const varId = getVariableId(state, varArg.term);
+    if (!state.varsRequiringPropertyProof.includes(varId)) {
+      state.varsRequiringPropertyProof.push(varId);
+    }
+
+    const idString = `triples[${state.varOccurrences[varId][0][0]}][${state.varOccurrences[varId][0][1]}][0]`;
+    
+    switch (operator) {
+      case "isiri":
+        // NOT isIRI means not equal to 0
+        state.imports.add("circomlib/circuits/comparators.circom");
+        return `  component notIRI${componentCounter.value} = IsEqual();\n` +
+               `  notIRI${componentCounter.value}.in[0] <== ${idString};\n` +
+               `  notIRI${componentCounter.value}.in[1] <== 0;\n` +
+               `  notIRI${componentCounter.value}.out === 0;\n`;
+      case "isblank":
+        // NOT isBLANK means not equal to 1
+        state.imports.add("circomlib/circuits/comparators.circom");
+        return `  component notBlank${componentCounter.value} = IsEqual();\n` +
+               `  notBlank${componentCounter.value}.in[0] <== ${idString};\n` +
+               `  notBlank${componentCounter.value}.in[1] <== 1;\n` +
+               `  notBlank${componentCounter.value}.out === 0;\n`;
+      case "isliteral":
+        // NOT isLITERAL means it is either IRI (0) or BLANK (1)
+        state.imports.add("circomlib/circuits/comparators.circom");
+        return `  component isZero${componentCounter.value} = IsEqual();\n` +
+               `  isZero${componentCounter.value}.in[0] <== ${idString};\n` +
+               `  isZero${componentCounter.value}.in[1] <== 0;\n` +
+               `  component isOne${componentCounter.value} = IsEqual();\n` +
+               `  isOne${componentCounter.value}.in[0] <== ${idString};\n` +
+               `  isOne${componentCounter.value}.in[1] <== 1;\n` +
+               `  isZero${componentCounter.value}.out + isOne${componentCounter.value}.out === 1;\n`;
+      default:
+        throw new Error(`Unsupported negated type check operator: ${operator}`);
+    }
+  }
+
+  throw new Error(`Unsupported negation of operator: ${operator}`);
+}
+
+function handleFilterExpression(
+  state: CircuitState, 
+  expression: Algebra.Expression, 
+  componentCounter: { value: number }
+): string {
+  if (expression.expressionType !== Algebra.expressionTypes.OPERATOR) {
+    throw new Error("Only operator expressions are currently supported in filters");
+  }
+
+  const operator = expression.operator;
+  let output = '';
+
+  // Handle AND operations recursively
+  if (operator === "&&") {
+    if (expression.args.length !== 2) {
+      throw new Error("AND operator must have exactly 2 arguments");
+    }
+    
+    output += handleFilterExpression(state, expression.args[0], componentCounter);
+    output += `\n`;
+    output += handleFilterExpression(state, expression.args[1], componentCounter);
+    return output;
+  }
+
+  // Handle comparison operators
+  if (["=", "!=", ">", "<", ">=", "<="].includes(operator)) {
+    if (expression.args.length !== 2) {
+      throw new Error("Binary operators must have exactly 2 arguments");
+    }
+
+    // Special case for lang() = "string" pattern
+    if (operator === "=" && 
+        expression.args[0].expressionType === Algebra.expressionTypes.OPERATOR && 
+        expression.args[0].operator === "lang" && 
+        expression.args[0].args[0].term.termType === "Variable" &&
+        expression.args[1].expressionType === Algebra.expressionTypes.TERM &&
+        expression.args[1].term.termType === "Literal" &&
+        expression.args[1].term.datatype.termType === "NamedNode" &&
+        expression.args[1].term.datatype.value === 'http://www.w3.org/2001/XMLSchema#string') {
+      return handleLangFilter(state, expression);
+    }
+
+    output += handleComparisonFilter(state, operator, expression.args, componentCounter.value);
+    componentCounter.value++;
+    return output;
+  }
+
+  // Handle type check operators
+  if (["isiri", "isliteral", "isblank"].includes(operator)) {
+    if (expression.args.length !== 1) {
+      throw new Error(`${operator} operator must have exactly 1 argument`);
+    }
+    return handleTypeCheckFilter(state, operator, expression.args[0]);
+  }
+
+  // Handle negation operator
+  if (operator === "!") {
+    if (expression.args.length !== 1) {
+      throw new Error("Negation operator must have exactly 1 argument");
+    }
+    const result = handleNegationFilter(state, expression.args[0], componentCounter);
+    componentCounter.value++;
+    return result;
+  }
+
+  throw new Error(`Unsupported operator: ${operator}. Only comparison operators (>, <, =, !=, >=, <=), type checks (isiri, isliteral, isblank), negation (!), and && are supported`);
+}
+
+function generateFilters(state: CircuitState, filter: Algebra.Expression | null): string {
+  if (!filter) return '';
+
+  let output = `\n`;
+  const componentCounter = { value: 0 };
+  output += handleFilterExpression(state, filter, componentCounter);
+  return output;
+}
+
+function generateTermTypeConstraints(state: CircuitState): string {
+  if (state.termTypeConstraints.length === 0) return '';
+
+  let output = `\n`;
+  for (const constraint of state.termTypeConstraints) {
+    output += constraint + `\n`;
+  }
+  return output;
+}
+
+function generateOutputs(state: CircuitState): string {
+  let output = `\n`;
+
+  for (let i = 0; i < state.outputVariables.length; i++) {
+    const variable = state.outputVariables[i];
+    const occurrence = state.varOccurrences[variable][0];
+    output += `  variables[${i}] <== triples[${occurrence[0]}][${occurrence[1]}];\n`;
+  }
+
+  return output;
+}
+
+function generateReveals(state: CircuitState): string {
+  let output = `\n`;
+
+  for (const reveal of state.reveals) {
+    output += `  [${getIndex(reveal[2])}] === triples[${reveal[0]}][${reveal[1]}];\n`;
+  }
+
+  return output;
+}
+
+function generateTemplate(state: CircuitState): string {
+  let output = `template QueryVerifier() {\n`;
+  output += `  signal input triples[${state.numTriples}][3][${TERM_DIMENSIONS}];\n`;
+  output += `  signal output variables[${state.outputVariables.length}][${TERM_DIMENSIONS}];\n`;
+  output += `\n`;
+  return output;
+}
+
+function generateImports(state: CircuitState): string {
+  let output = `pragma circom 2.1.2;\n\n`;
+  
+  for (const imp of state.imports) {
+    output += `include "${imp}";\n`;
+  }
+  
+  output += `\n`;
+  return output;
+}
+
+function collectFilterVariables(state: CircuitState, expression: Algebra.Expression): void {
   if (expression.expressionType === Algebra.expressionTypes.OPERATOR) {
     const operator = expression.operator;
     
-    // Handle AND operations
     if (operator === "&&") {
-      if (expression.args.length !== 2) {
-        throw new Error("AND operator must have exactly 2 arguments");
-      }
-      
-      // Recursively handle both sides of the AND
-      handleFilterExpression(expression.args[0]);
-      outString += `\n`;
-      handleFilterExpression(expression.args[1]);
-      return;
-    }
-
-    // Handle comparison operators
-    if (operator === ">" || operator === "<" || operator === "=" || operator === "!=" || operator === ">=" || operator === "<=") {
-      if (expression.args.length !== 2) {
-        throw new Error("Only binary operator expressions are currently supported in filters");
-      }
-
-      /** CUSTOM CODE FOR HANDLING LANG FOR DEMO - NEED TO REFACTOR THIS BETTER */
-
-      if (operator === "=" 
-        && expression.args[0].expressionType === Algebra.expressionTypes.OPERATOR 
-        && expression.args[0].operator === "lang" 
-        && expression.args[0].args[0].term.termType === "Variable"
-        && expression.args[1].expressionType === Algebra.expressionTypes.TERM
-        && expression.args[1].term.termType === "Literal"
-        && expression.args[1].term.datatype.termType === "NamedNode"
-        && expression.args[1].term.datatype.value === 'http://www.w3.org/2001/XMLSchema#string'
-      ) {
-        imports.add("./operators/langmatches.circom");
-        
-        const lang = expression.args[0].args[0].term;
-        const str = expression.args[1].term.value;
-
-        if (!varsRequiringPropertyProof.includes(getVariableId(lang))) {
-          varsRequiringPropertyProof.push(getVariableId(lang));
-        }
-  
-        const ind = varsRequiringPropertyProof.indexOf(getVariableId(lang));
-
-        outString += `  component fl${f} = Lang();\n`;
-        outString += `  component fle${f} = StringEquals();\n`;
-        outString += `  fl${f}.in <== terms[${ind}];\n`;
-        outString += `  fle${f}.in[0] <== fl${f}.out;\n`;
-        outString += `  fle${f}.in[1] <== [${stringToInts(str).join(", ")}];\n`;
-
-        return;
-      }
-
-      // For now we skip any work relying on coercions 
-      const left = expression.args[0];
-      const right = expression.args[1];
-
-      imports.add("circomlib/circuits/comparators.circom");
-
-      // outString += `  ${OperatorMapping[operator]}([${getExpressionString(left)}, ${getExpressionString(right)}]) === ${operator === "!=" ? 0 : 1};\n`;
-      outString += `  component f${f} = ${OperatorMapping[operator]};\n`;
-      outString += `  f${f}.in[0] <== ${getExpressionString(left)};\n`;
-      outString += `  f${f}.in[1] <== ${getExpressionString(right)};\n`;
-      outString += `  f${f}.out === ${operator === "!=" ? 0 : 1};\n`;
-
-      f++;
-      return;
-    } else if (operator === "isiri" || operator === "isliteral" || operator === "isblank") {
-      if (expression.args.length !== 1) {
-        throw new Error("isIRI operator must have exactly 1 argument");
-      }
-      const arg = expression.args[0];
-      if (arg.expressionType !== Algebra.expressionTypes.TERM || arg.term.termType !== "Variable") {
-        throw new Error("isIRI operator must have a variable argument");
-      }
-      if (!varsRequiringPropertyProof.includes(getVariableId(arg.term))) {
-        varsRequiringPropertyProof.push(getVariableId(arg.term));
-      }
-
-      const ind = varsRequiringPropertyProof.indexOf(getVariableId(arg.term));
-
-      // Checks that the term is an integer
-      if (operator === "isiri") {
-        outString += `  terms[${ind}][0] === 0;\n`;
-      } else if (operator === "isblank") {
-        outString += `  terms[${ind}][0] === 1;\n`;
-      } else if (operator === "isliteral") {
-        imports.add("circomlib/circuits/comparators.circom");
-        outString += `  component notZero${ind} = IsEqual();\n`;
-        outString += `  notZero${ind}.in[0] <== terms[${ind}][0];\n`;
-        outString += `  notZero${ind}.in[1] <== 0;\n`;
-        outString += `  notZero${ind}.out === 0;\n`;
-        outString += `  component notOne${ind} = IsEqual();\n`;
-        outString += `  notOne${ind}.in[0] <== terms[${ind}][0];\n`;
-        outString += `  notOne${ind}.in[1] <== 1;\n`;
-        outString += `  notOne${ind}.out === 0;\n`;
-      }
+      collectFilterVariables(state, expression.args[0]);
+      collectFilterVariables(state, expression.args[1]);
       return;
     }
     
-    throw new Error(`Unsupported operator: ${operator}. Only comparison operators (>, <, =, !=, >=, <=) and && are supported`);
-  }
-  
-  throw new Error("Only operator expressions are currently supported in filters");
-}
-
-if (filter) {
-  outString += `\n`;
-  handleFilterExpression(filter);
-  input = input.input;
-}
-
-// Add term type constraints
-if (termTypeConstraints.length > 0) {
-  outString += `\n`;
-  for (const constraint of termTypeConstraints) {
-    outString += constraint + `\n`;
-  }
-}
-
-outString += `\n`;
-
-for (let i = 0; i < outputVariables.length; i++) {
-  const variable = outputVariables[i];
-  outString += `  variables[${i}] <== triples[${varOccurrences[variable][0][0]}][${varOccurrences[variable][0][1]}];\n`;
-}
-
-outString += `\n`;
-
-for (let i = 0; i < reveals.length; i++) {
-  const reveal = reveals[i];
-  // outString += `  reveals[${i}] <== triples[${reveal[0]}][${reveal[1]}];\n`;
-  if (reveal[1] === 2) {
-    const [str, lang] = convertObject(reveal[2]);
-    outString += `  [${stringToInts(str).join(", ")}] === triples[${reveal[0]}][${reveal[1]}];\n`;
-    outString += `  [${stringToInts(lang).join(", ")}] === triples[${reveal[0]}][3];\n`;
-  } else {
-    outString += `  [${stringToInts(termToString(reveal[2])).join(", ")}] === triples[${reveal[0]}][${reveal[1]}];\n`;
-  }
-}
-
-outString += `\n`;
-
-// Add constraints for any unconstrained signals
-const usedSignals = new Set<string>();
-for (const join of joins) {
-  for (const occurrence of join) {
-    usedSignals.add(`${occurrence[0]}:${occurrence[1]}`);
-  }
-}
-
-for (let i = 0; i < outputVariables.length; i++) {
-  const variable = outputVariables[i];
-  const occurrence = varOccurrences[variable][0];
-  usedSignals.add(`${occurrence[0]}:${occurrence[1]}`);
-}
-
-for (const reveal of reveals) {
-  usedSignals.add(`${reveal[0]}:${reveal[1]}`);
-}
-
-// Add signals used in filters to the used set
-function collectFilterVariables(expression: Algebra.Expression): void {
-  if (expression.expressionType === Algebra.expressionTypes.OPERATOR) {
-    const operator = expression.operator;
-    
-    if (operator === "&&") {
-      // Recursively collect variables from both sides of AND
-      collectFilterVariables(expression.args[0]);
-      collectFilterVariables(expression.args[1]);
-      return;
-    }
-    
-    // For comparison operators, collect variables from arguments
     for (const arg of expression.args) {
       if (arg.expressionType === Algebra.expressionTypes.TERM && arg.term.termType === "Variable") {
-        const varId = getVariableId(arg.term);
-        const occurrence = varOccurrences[varId][0];
-        usedSignals.add(`${occurrence[0]}:${occurrence[1]}`);
+        const varId = getVariableId(state, arg.term);
+        // This function is used to mark signals as used for constraint optimization
+        // Implementation details would go here
       }
     }
   }
 }
 
-if (filter) {
-  collectFilterVariables(filter);
+function generateCircuitMetadata(state: CircuitState): object {
+  const termsToInclude = state.varsRequiringPropertyProof
+    .map(v => state.varOccurrences[v][0]);
+
+  return {
+    termInputs: termsToInclude,
+    variables: state.variables.map(v => v.value),
+    reveals: state.reveals,
+  };
 }
 
-// Constrain any unused signals to ensure they are valid
-for (let i = 0; i < numTriples; i++) {
-  for (let j = 0; j < 3; j++) {
-    if (!usedSignals.has(`${i}:${j}`)) {
-      // outString += `  triples[${i}][${j}] * 0 === 0;\n`;
-    }
+// Main generation function
+export function generateCircuit(queryFilePath: string = "sparql.rq"): void {
+  const query = fs.readFileSync(queryFilePath, "utf8");
+  const sparql = processSparqlQuery(query);
+  const state = initializeCircuitState();
+
+  // Extract variables
+  extractVariables(state, sparql);
+
+  // Process input and extract filter
+  let input = sparql.input;
+  let filter: Algebra.Expression | null = null;
+
+  if (input.type === Algebra.types.FILTER) {
+    filter = input.expression;
+    input = input.input;
   }
+
+  // Extract and process patterns
+  extractPatterns(state, input);
+  processPatterns(state);
+
+  // Generate circuit components
+  let circuitBody = '';
+  circuitBody += generateJoins(state);
+  circuitBody += generateFilters(state, filter);
+  circuitBody += generateTermTypeConstraints(state);
+  circuitBody += generateOutputs(state);
+  circuitBody += generateReveals(state);
+  circuitBody += `\n}\n`;
+
+  // Generate complete circuit
+  const circuitHeader = generateImports(state);
+  const templateStart = generateTemplate(state);
+  const completeCircuit = circuitHeader + templateStart + circuitBody;
+
+  // Write outputs
+  fs.writeFileSync("circuits/query.circom", completeCircuit);
+  fs.writeFileSync("circuits/artefacts/query.json", JSON.stringify(generateCircuitMetadata(state), null, 2));
 }
 
-outString += `\n`;
-outString += `}\n`;
-
-
-let startString = `pragma circom 2.1.2;\n\n`;
-
-// Add imports
-for (const imp of imports) {
-  startString += `include "${imp}";\n`;
+// Run the generator if this file is executed directly
+if (require.main === module) {
+  generateCircuit();
 }
-
-const termsToInclude = varsRequiringPropertyProof
-  .map(v => varOccurrences[v][0])
-  // .sort((a, b) => (a[0] - b[0]) * patterns.length * 3 + (a[1] - b[1]));
-
-// TODO: FUTURE NUMERIC SPECIFIC AFFORDANCES
-
-startString += `\n`;
-
-// Add template
-startString += `template QueryVerifier() {\n`;
-// startString += `  signal input triples[${numTriples}][3];\n`;
-startString += `  signal input triples[${numTriples}][5][128];\n`;
-startString += `  signal output variables[${outputVariables.length}][128];\n`;
-// startString += `  signal output reveals[${reveals.length}][128];\n\n`;
-
-startString += `\n`;
-
-fs.writeFileSync("circuits/query.circom", startString + outString);
-fs.writeFileSync("circuits/artefacts/query.json", JSON.stringify({
-  // These are the terms that must be provided to the circuit as input
-  // to check properties 
-  "termInputs": termsToInclude,
-  // These are the mapping to variable names in the output
-  "variables": variables.map(v => v.value),
-  // These are the terms that must be directly disclosed
-  "reveals": reveals,
-}, null, 2));
-
-// Optimisation Notes:
-// - We do NOT need to perform checks on disclosed values within the circuit:
-// for instance; if age is revealed, we do not need to have proof that it is over
-// 18 as part of the ZKP
-
-// const expression = input.expression;
-
-// expression.expressionType
-
-// console.log(JSON.stringify(sparql, null, 2));

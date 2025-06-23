@@ -5,6 +5,7 @@ async function main() {
   // create circomkit
   const circomkit = new Circomkit({
     protocol: "plonk",
+    optimization: 2,
   });
 
   // artifacts output at `build/sparql_age_jesse` directory
@@ -13,6 +14,17 @@ async function main() {
     template: "QueryVerifier",
     params: [],
   });
+
+  // check if ptau file exists
+  if (!fs.existsSync("./ptau/powersOfTau28_hez_final_09.ptau")) {
+    // download ptau file
+    const response = await fetch("https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_09.ptau");
+    const data = await response.arrayBuffer();
+    fs.writeFileSync("./ptau/powersOfTau28_hez_final_09.ptau", Buffer.from(data));
+  }
+
+  // manually setup with correct ptau file
+  await circomkit.setup("query_test", "./ptau/powersOfTau28_hez_final_09.ptau");
 
   // proof & public signals at `build/sparql_age_jesse/my_input` directory
   console.time("Proof generation");
