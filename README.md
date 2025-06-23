@@ -54,7 +54,7 @@ This query finds people aged 18-24 (but not 20) who know someone and have an Eng
 
 ## 🔑 Critical: `my_input.json` Format
 
-**This is the signed input file that collaborators must generate.** It contains the private witness data for your zero-knowledge proof.
+**This is the signed input file that issuers must generate.** It contains the private witness data for your zero-knowledge proof.
 
 ### Structure Overview
 
@@ -210,7 +210,7 @@ for (let i = 0; i < expectedPredicates.length; i++) {
 2. **Generate Circuit**: `npm run generate` (creates `circuits/query.circom`)
 3. **Setup Circuit**: `npx circomkit setup query`
 
-### For Collaborators (Data Providers)
+### For Issuers (Data Providers)
 
 1. **Prepare Data**: Create your private `data.ttl` file matching the query structure
 2. **Generate Input**: `npm run input` (creates signed `circuits/artefacts/my_input.json`)
@@ -255,3 +255,21 @@ The SPARQL-to-Circom compiler:
 - ✅ Variable joins
 - ❌ OPTIONAL patterns (not yet supported)
 - ❌ UNION operations (not yet supported)
+
+## Performance
+
+Performance benchmarks for the example SPARQL query (age filtering with 3 triple patterns):
+
+```
+Setup: Circuit compilation and trusted setup
+Proof generation: ~936ms 
+Proof verification: ~121ms
+Protocol: PLONK
+```
+
+**Notes:**
+- Performance scales with query complexity (number of triple patterns and FILTER constraints)
+- Initial setup includes circuit compilation and cryptographic parameter generation
+- Proof generation time is dominated by constraint satisfaction
+- Verification is fast and suitable for real-time applications
+- PLONK protocol provides universal setup (no per-circuit trusted setup required)
