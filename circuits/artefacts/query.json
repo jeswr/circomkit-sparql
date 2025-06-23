@@ -1,33 +1,32 @@
 {
-  "termInputs": [
-    [
-      0,
-      2
-    ],
-    [
-      1,
-      2
-    ],
-    [
-      2,
-      2
-    ]
-  ],
+  "termInputs": [],
   "variables": [
     "person"
   ],
   "reveals": [
     [
       0,
-      1
+      1,
+      {
+        "termType": "NamedNode",
+        "value": "http://xmlns.com/foaf/0.1/age"
+      }
     ],
     [
       1,
-      1
+      1,
+      {
+        "termType": "NamedNode",
+        "value": "http://xmlns.com/foaf/0.1/knows"
+      }
     ],
     [
       2,
-      1
+      1,
+      {
+        "termType": "NamedNode",
+        "value": "http://xmlns.com/foaf/0.1/name"
+      }
     ]
   ]
 }

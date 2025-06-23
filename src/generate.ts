@@ -1,8 +1,10 @@
 import { translate, Algebra } from "sparqlalgebrajs";
 import fs from "fs";
-import { Variable, BaseQuad } from "@rdfjs/types";
+import { Variable, BaseQuad, Term } from "@rdfjs/types";
 import { Filter } from "sparqlalgebrajs/lib/algebra";
 import { stringToInts } from "./termId";
+import { termToString } from "rdf-string-ttl";
+import { convertObject } from "./createMockInput";
 
 const TERM_ID_SETUP = false;
 
@@ -21,7 +23,7 @@ const outputVariables: number[] = [];
 const imports = new Set<string>();
 const patterns: BaseQuad[] = [];
 const varOccurrences: Record<number, [number, 0 | 1 | 2][]> = {};
-const reveals: [number, 0 | 1 | 2][] = [];
+const reveals: [number, 0 | 1 | 2, Term][] = [];
 const filters: Map<string, Filter> = new Map();
 // const varsRequiringPropertyProof = new Set<number>();
 const varsRequiringPropertyProof: number[] = [];
@@ -72,7 +74,7 @@ for (let i = 0; i < patterns.length; i++) {
     } else if (term.termType === "BlankNode") {
       throw new Error("Unexpected blank node, should have been removed in preprocessing");
     } else {
-      reveals.push([i, j as 0 | 1 | 2]);
+      reveals.push([i, j as 0 | 1 | 2, term]);
     }
   }
   if (pattern.graph.termType !== "DefaultGraph") {
@@ -277,7 +279,14 @@ outString += `\n`;
 
 for (let i = 0; i < reveals.length; i++) {
   const reveal = reveals[i];
-  outString += `  reveals[${i}] <== triples[${reveal[0]}][${reveal[1]}];\n`;
+  // outString += `  reveals[${i}] <== triples[${reveal[0]}][${reveal[1]}];\n`;
+  if (reveal[1] === 2) {
+    const [str, lang] = convertObject(reveal[2]);
+    outString += `  [${stringToInts(str).join(", ")}] === triples[${reveal[0]}][${reveal[1]}];\n`;
+    outString += `  [${stringToInts(lang).join(", ")}] === triples[${reveal[0]}][3];\n`;
+  } else {
+    outString += `  [${stringToInts(termToString(reveal[2])).join(", ")}] === triples[${reveal[0]}][${reveal[1]}];\n`;
+  }
 }
 
 outString += `\n`;
@@ -331,7 +340,7 @@ if (filter) {
 for (let i = 0; i < numTriples; i++) {
   for (let j = 0; j < 3; j++) {
     if (!usedSignals.has(`${i}:${j}`)) {
-      outString += `  triples[${i}][${j}] * 0 === 0;\n`;
+      // outString += `  triples[${i}][${j}] * 0 === 0;\n`;
     }
   }
 }
@@ -357,10 +366,10 @@ startString += `\n`;
 
 // Add template
 startString += `template QueryVerifier() {\n`;
-startString += `  signal input triples[${numTriples}][3];\n`;
-startString += `  signal input terms[${termsToInclude.length}][128];\n`;
-startString += `  signal output variables[${outputVariables.length}];\n`;
-startString += `  signal output reveals[${reveals.length}];\n\n`;
+// startString += `  signal input triples[${numTriples}][3];\n`;
+startString += `  signal input triples[${numTriples}][5][128];\n`;
+startString += `  signal output variables[${outputVariables.length}][128];\n`;
+// startString += `  signal output reveals[${reveals.length}][128];\n\n`;
 
 startString += `\n`;
 
