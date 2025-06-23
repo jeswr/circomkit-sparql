@@ -2,6 +2,7 @@ import { translate, Algebra } from "sparqlalgebrajs";
 import fs from "fs";
 import { Variable, BaseQuad } from "@rdfjs/types";
 import { Filter } from "sparqlalgebrajs/lib/algebra";
+import { stringToInts } from "./termId";
 
 const TERM_ID_SETUP = false;
 
@@ -129,7 +130,7 @@ function getExpressionString(expression: Algebra.Expression): string {
     }
   }
 
-  console.log(expression);
+  console.log(JSON.stringify(expression, null, 2));
   throw new Error("Only term and some named expressions are currently supported in filters");
 }
 
@@ -167,12 +168,45 @@ function handleFilterExpression(expression: Algebra.Expression): void {
         throw new Error("Only binary operator expressions are currently supported in filters");
       }
 
+      /** CUSTOM CODE FOR HANDLING LANG FOR DEMO - NEED TO REFACTOR THIS BETTER */
+
+      if (operator === "=" 
+        && expression.args[0].expressionType === Algebra.expressionTypes.OPERATOR 
+        && expression.args[0].operator === "lang" 
+        && expression.args[0].args[0].term.termType === "Variable"
+        && expression.args[1].expressionType === Algebra.expressionTypes.TERM
+        && expression.args[1].term.termType === "Literal"
+        && expression.args[1].term.datatype.termType === "NamedNode"
+        && expression.args[1].term.datatype.value === 'http://www.w3.org/2001/XMLSchema#string'
+      ) {
+        imports.add("./operators/langmatches.circom");
+        
+        const lang = expression.args[0].args[0].term;
+        const str = expression.args[1].term.value;
+
+        if (!varsRequiringPropertyProof.includes(getVariableId(lang))) {
+          varsRequiringPropertyProof.push(getVariableId(lang));
+        }
+  
+        const ind = varsRequiringPropertyProof.indexOf(getVariableId(lang));
+  
+
+        outString += `  component fl${f} = Lang();\n`;
+        outString += `  component fle${f} = StringEquals();\n`;
+        outString += `  fl${f}.in <== terms[${ind}];\n`;
+        outString += `  fle${f}.in[0] <== fl${f}.out;\n`;
+        outString += `  fle${f}.in[1] <== [${stringToInts(str).join(", ")}];\n`;
+
+        return;
+      }
+
       // For now we skip any work relying on coercions 
       const left = expression.args[0];
       const right = expression.args[1];
 
       imports.add("circomlib/circuits/comparators.circom");
 
+      // outString += `  ${OperatorMapping[operator]}([${getExpressionString(left)}, ${getExpressionString(right)}]) === ${operator === "!=" ? 0 : 1};\n`;
       outString += `  component f${f} = ${OperatorMapping[operator]};\n`;
       outString += `  f${f}.in[0] <== ${getExpressionString(left)};\n`;
       outString += `  f${f}.in[1] <== ${getExpressionString(right)};\n`;
@@ -307,7 +341,7 @@ outString += `\n`;
 outString += `}\n`;
 
 
-let startString = `pragma circom 2.0.0;\n\n`;
+let startString = `pragma circom 2.1.2;\n\n`;
 
 // Add imports
 for (const imp of imports) {

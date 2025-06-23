@@ -1,6 +1,7 @@
-pragma circom 2.0.0;
+pragma circom 2.1.2;
 
 include "circomlib/circuits/comparators.circom";
+include "./operators/langmatches.circom";
 
 template QueryVerifier() {
   signal input triples[3][3];
@@ -37,6 +38,12 @@ template QueryVerifier() {
   notOne2.in[0] <== terms[2][0];
   notOne2.in[1] <== 1;
   notOne2.out === 0;
+
+  component fl3 = Lang();
+  component fle3 = StringEquals();
+  fl3.in <== terms[2];
+  fle3.in[0] <== fl3.out;
+  fle3.in[1] <== [101, 110, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
   terms[0][0] === 5;
 

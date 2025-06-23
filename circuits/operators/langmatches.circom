@@ -2,8 +2,19 @@ pragma circom 2.0.0;
 
 template Lang() {
   signal input in[128];
-  signal input prefix[length];
-  signal output out;
+  signal output out[127];
 
-  out <== str[0] === prefix[0] && str[1] === prefix[1] && str[2] === prefix[2];
+  in[0] === 2;
+
+  for (var i = 1; i < 128; i++) {
+    out[i - 1] <== in[i];
+  }
+}
+
+template StringEquals() {
+  signal input in[2][127];
+
+  for (var i = 0; i < 127; i++) {
+    in[0][i] === in[1][i];
+  }
 }

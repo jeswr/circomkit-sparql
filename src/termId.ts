@@ -80,4 +80,4 @@ function getIndex(term: Term): [number, ...number[]] {
   }
 }
 
-export { getIndex };
+export { getIndex, stringToInts };
