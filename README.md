@@ -42,6 +42,7 @@ This query finds people aged 18-24 (but not 20) who know someone and have an Eng
 - **`data.ttl`** - RDF data in Turtle format (your private knowledge base)
 - **`circuits/query.circom`** - Generated Circom circuit file
 - **`circuits/artefacts/my_input.json`** - **🔑 Input file** (which is where we need to be putting the signed data)
+- **`circuits/artefacts/query.json`** - **📋 Query specification** (defines required terms and reveals)
 - **`circuits.json`** - Circuit configurations
 
 ### Source Code (`src/`)
@@ -108,6 +109,97 @@ From the sample data:
 [5, 19, 0, 0, ...]           // Integer literal: age 19
 [0, 104, 116, 116, ...]      // Named node: "http://example.org/bob"
 [2, 101, 110, 0, ...]        // Language tag: "en"
+```
+
+## 📋 Query Specification: `query.json`
+
+The `query.json` file is automatically generated during circuit compilation and serves as the **interface specification** between the circuit and your input data. It defines exactly what terms must be included and what will be revealed.
+
+### Structure
+
+```json
+{
+  "termInputs": [
+    [0, 2],    // Triple 0, position 2 (object) - the age value
+    [1, 2],    // Triple 1, position 2 (object) - the friend IRI  
+    [2, 2]     // Triple 2, position 2 (object) - the name literal
+  ],
+  "variables": [
+    "person"   // Output variable names from SELECT clause
+  ],
+  "reveals": [
+    [0, 1],    // Triple 0, position 1 (predicate) - foaf:age
+    [1, 1],    // Triple 1, position 1 (predicate) - foaf:knows
+    [2, 1]     // Triple 2, position 1 (predicate) - foaf:name
+  ]
+}
+```
+
+### Field Explanations
+
+#### `termInputs` Array
+
+- **Purpose**: Specifies which RDF terms need detailed encoding in `my_input.json`
+- **Format**: `[triple_index, position]` where position is 0=subject, 1=predicate, 2=object
+- **Why needed**: These terms are used in FILTER constraints (age comparisons, type checks, language matching)
+- **Circuit usage**: Accessed as `terms[i]` arrays for property verification
+
+#### `variables` Array
+
+- **Purpose**: Maps circuit output variables to SPARQL SELECT variables
+- **Format**: Array of variable names from your SPARQL query
+- **Circuit usage**: Values returned as `variables[i]` outputs
+
+#### `reveals` Array
+
+- **Purpose**: Specifies which RDF terms will be publicly revealed in the proof - verifiers MUST check that the terms in the reveals array correspond to expected terms in patterns of the query.
+- **Format**: `[triple_index, position]` coordinates in your triple pattern
+- **Circuit usage**: Output as `reveals[i]` signals
+
+### External Verification Requirements
+
+**⚠️ Important**: The circuit only proves your data satisfies the FILTER constraints. **You must verify the revealed values externally** to complete the proof verification:
+
+#### Revealed Predicates Check
+
+From the example `reveals`:
+
+```json
+"reveals": [[0, 1], [1, 1], [2, 1]]
+```
+
+**External verification must confirm**:
+
+- `reveals[0]` = `foaf:age` (correct predicate for age)
+- `reveals[1]` = `foaf:knows` (correct predicate for friendship)
+- `reveals[2]` = `foaf:name` (correct predicate for name)
+
+#### Why External Checks Are Needed
+
+The circuit proves:
+
+- ✅ Age is between 18-24 (but not 20)
+- ✅ Friend is an IRI
+- ✅ Name is a literal with English language tag
+- ❌ **Does NOT prove the predicates are correct**
+
+Without external verification, someone could use:
+
+- `foaf:height` instead of `foaf:age` (wrong property)
+- `foaf:enemy` instead of `foaf:knows` (wrong relationship)
+
+#### Verification Code Example
+
+```typescript
+// After proof verification, check revealed values
+const revealedPredicates = proof.publicSignals.reveals;
+const expectedPredicates = ['foaf:age', 'foaf:knows', 'foaf:name'];
+
+for (let i = 0; i < expectedPredicates.length; i++) {
+  if (revealedPredicates[i] !== expectedPredicates[i]) {
+    throw new Error(`Wrong predicate at position ${i}`);
+  }
+}
 ```
 
 ## Workflow
