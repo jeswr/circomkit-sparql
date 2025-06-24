@@ -1,11 +1,16 @@
 pragma circom 2.1.2;
 
 include "circomlib/circuits/comparators.circom";
+include "circomlib/circuits/gates.circom";
 include "./operators/langmatches.circom";
 
 template QueryVerifier() {
   signal input triples[3][3][128];
   signal output variables[1][128];
+  signal output out;
+
+  out <== 1, OR()(1, 1);
+  out === 1;
 
   // Joins
   triples[0][0] === triples[1][0];

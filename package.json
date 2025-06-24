@@ -13,6 +13,7 @@
     "circomlib": "^2.0.5",
     "n3": "^1.26.0",
     "rdf-dereference-store": "^1.4.0",
+    "rdf-namespaces": "^1.13.1",
     "rdf-string-ttl": "^2.0.1",
     "rdf-terms": "^2.0.0",
     "sparqlalgebrajs": "^5.0.1"
