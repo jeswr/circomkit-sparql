@@ -5,6 +5,9 @@ import { getIndex, stringToInts } from "./termId";
 import { termToString } from "rdf-string-ttl";
 import { } from 'rdf-namespaces';
 import { xsd } from "./xsd";
+import { DataFactory as DF } from "n3";
+
+type CircomTerm = Var | Input | Static | Computed | ComputedBinary;
 
 interface Var {
   type: "variable";
@@ -21,16 +24,40 @@ interface Static {
   value: Term;
 }
 
+enum ComputedType {
+  IS_LITERAL = "isliteral",
+  IS_IRI = "isiri",
+  IS_BLANK = "isblank",
+  LANG = "lang",
+}
+
+enum ComputedBinaryType {
+  EQUAL = "equal",
+}
+
+interface Computed {
+  type: "computed";
+  input: CircomTerm;
+  computedType: ComputedType;
+}
+
+interface ComputedBinary {
+  type: "computedBinary";
+  left: CircomTerm;
+  right: CircomTerm;
+  computedType: ComputedBinaryType;
+}
+
 interface BindConstraint {
   type: "bind";
   left: Var;
-  right: Var | Input;
+  right: CircomTerm;
 }
 
 interface EqConstraint {
   type: "=";
-  left: Var | Static | Input;
-  right: Var | Static | Input;
+  left: CircomTerm;
+  right: CircomTerm;
 }
 
 interface AllConstraint {
@@ -50,16 +77,38 @@ interface NotConstraint {
 
 interface UnaryCheckConstraint {
   type: "unary";
-  constraint: Var | Static | Input;
+  constraint: CircomTerm;
   operator: "isiri" | "isblank";
 }
 
 type Constraint = EqConstraint | AllConstraint | SomeConstraint | NotConstraint | UnaryCheckConstraint;
 
+function literalConstraint(constraint: CircomTerm): Constraint {
+  return {
+    type: "not",
+    constraint: {
+      type: "some",
+      constraints: [
+        {
+          type: "unary",
+          constraint: constraint,
+          operator: "isiri",
+        },
+        {
+          type: "unary",
+          constraint: constraint,
+          operator: "isblank",
+        },
+      ],
+    },
+  }
+}
+
 function operator(op: Algebra.OperatorExpression): Constraint {
   switch (op.operator) {
     case "&&": return { type: "all", constraints: op.args.map(constraintExpression) };
     case "||": return { type: "some", constraints: op.args.map(constraintExpression) };
+    // TODO: Make sure this is correct insofar as numerics are concerned and expressions like FILTER(isLITERAL(?friend) == true)
     case "=":
       if (op.args.length !== 2) throw new Error("Expected two arguments for =");
       return { type: "=", left: valueExpression(op.args[0]), right: valueExpression(op.args[1]) };
@@ -73,32 +122,31 @@ function operator(op: Algebra.OperatorExpression): Constraint {
       return { type: "unary", constraint: valueExpression(op.args[0]), operator: op.operator };
     case "isliteral":
       if (op.args.length !== 1) throw new Error(`Expected one argument for ${op.operator}`);
-      return {
-        type: "not",
-        constraint: {
-          type: "some",
-          constraints: [
-            {
-              type: "unary",
-              constraint: valueExpression(op.args[0]),
-              operator: "isiri",
-            },
-            {
-              type: "unary",
-              constraint: valueExpression(op.args[0]),
-              operator: "isblank",
-            },
-          ],
-        },
-      };
+      return literalConstraint(valueExpression(op.args[0]));
     default:
       throw new Error(`Unsupported operator: ${op.operator}`);
   }
 }
 
-function valueExpression(op: Algebra.Expression): Var | Static {
+function valueExpression(op: Algebra.Expression): Var | Static | Computed | ComputedBinary {
   switch (op.expressionType) {
     case Algebra.expressionTypes.TERM: return termExpression(op);
+    case Algebra.expressionTypes.OPERATOR:
+      switch (op.operator) {
+        case "isliteral":
+          return { type: "computed", input: valueExpression(op.args[0]), computedType: ComputedType.IS_LITERAL };
+        case "isiri":
+          return { type: "computed", input: valueExpression(op.args[0]), computedType: ComputedType.IS_IRI };
+        case "isblank":
+          return { type: "computed", input: valueExpression(op.args[0]), computedType: ComputedType.IS_BLANK };
+        case "lang":
+          return { type: "computed", input: valueExpression(op.args[0]), computedType: ComputedType.LANG };
+        case "=":
+          if (op.args.length !== 2) throw new Error("Expected two arguments for =");
+          return { type: "computedBinary", left: valueExpression(op.args[0]), right: valueExpression(op.args[1]), computedType: ComputedBinaryType.EQUAL };
+        default:
+          throw new Error(`Unsupported operator: ${op.operator}`);
+      }
     default:
       throw new Error(`Unsupported expression: [${op.expressionType}]\n${JSON.stringify(op, null, 2)}`);
   }
@@ -186,10 +234,27 @@ function bgp(op: Algebra.Bgp): OutInfo {
   };
 }
 
+function extend(op: Algebra.Extend): OutInfo {
+  const { input, expression } = op;
+  const res = operation(input);
+  return {
+    ...res,
+    binds: [
+      ...res.binds,
+      {
+        type: "bind",
+        left: { type: "variable", value: op.variable.value },
+        right: valueExpression(expression),
+      },
+    ],
+  };
+}
+
 function operation(op: Algebra.Operation): OutInfo {
   switch (op.type) {
     case Algebra.types.FILTER: return filter(op);
     case Algebra.types.BGP: return bgp(op);
+    case Algebra.types.EXTEND: return extend(op);
     default:
       throw new Error(`Unsupported operation: ${op.type}`);
   }
@@ -226,11 +291,13 @@ interface CircuitOptions {
   version: string;
 }
 
-function hashTerm(term: Var | Static | Input): string {
+function hashTerm(term: CircomTerm): string {
   switch (term.type) {
     case "variable": return term.value;
     case "input": return `input[${term.value[0]}]`;
     case "static": return `static[${getIndex(term.value).join(",")}]`;
+    case "computed": return `computed[${hashTerm(term.input)}][${term.computedType}]`;
+    case "computedBinary": return `computedBinary[${hashTerm(term.left)}][${hashTerm(term.right)}][${term.computedType}]`;
   }
 }
 
@@ -249,11 +316,36 @@ function hashConstraint(left: Constraint): string {
   }
 }
 
-function optimize(constraint: Constraint): Constraint {
+function computedToConstraint(right: Computed): Constraint | false {
+  switch (right.computedType) {
+    case ComputedType.IS_IRI:
+    case ComputedType.IS_BLANK:
+      return {
+        type: "unary",
+        constraint: right,
+        operator: right.computedType,
+      };
+    case ComputedType.IS_LITERAL:
+      return literalConstraint(right.input);
+    case ComputedType.LANG:
+      return false;
+    default:
+      throw new Error("Unsupported computed type: " + right.computedType);
+  }
+}
+
+function optimize(constraint: Constraint): Constraint | 'true' | 'false' {
   switch (constraint.type) {
     case "all":
     case "some":
-      let constraints = constraint.constraints.map(optimize);
+      const preConstraints = constraint.constraints.map(optimize);
+
+      // Cases where we can short circuit
+      if (constraint.type === "some" && preConstraints.some(c => c === 'true')) return 'true';
+      if (constraint.type === "all" && preConstraints.some(c => c === 'false')) return 'false';
+
+      // Remove short circuit values
+      let constraints = preConstraints.filter((c): c is Constraint => c !== 'true' && c !== 'false');
 
       // Remove duplicate constraints
       const seen = new Set<string>();
@@ -291,26 +383,99 @@ function optimize(constraint: Constraint): Constraint {
         // Push the not as far down as possible
         case "all":
         case "some":
-          return {
+          return optimize({
             type: constraint.constraint.type === "all" ? "some" : "all",
-            constraints: constraint.constraint.constraints.map(c => optimize({
+            constraints: constraint.constraint.constraints.map(c => ({
               type: "not",
               constraint: c,
             })),
-          };
+          });
         // Remove double negations
         case "not":
           return optimize(constraint.constraint.constraint);
         default:
+          const optimised = optimize(constraint.constraint);
+          if (optimised === 'true') return 'false';
+          if (optimised === 'false') return 'true';
           return constraint;
       }
+    case "=":
+      const left = preCompute(constraint.left);
+      const right = preCompute(constraint.right);
+
+      // BEGIN PREPROCESSING THAT SHOULD BE REMOVED AND HANDLED EARLIER
+
+      // TODO: Use (comunica?) to handle actual equality
+      if (left.type === 'static' && right.type === 'static')
+        return left.value.equals(right.value) ? 'true' : 'false';
+        
+      // TODO: HANDLE TERM NORMILISATION i.e. true, 1, True all need to be interpreted the same way
+      // SEE IF SPARQL ALGEBRAJS ALREADY DOES THIS
+
+      const isTrue = (term: Term) => term.equals(DF.literal("true", DF.namedNode(xsd.boolean))) || term.equals(DF.literal("1", DF.namedNode(xsd.boolean)));
+      const isFalse = (term: Term) => term.equals(DF.literal("false", DF.namedNode(xsd.boolean))) || term.equals(DF.literal("0", DF.namedNode(xsd.boolean)));
+
+      if (left.type === 'static' && right.type === 'computed') {
+        const constraint = computedToConstraint(right);
+        if (constraint) {
+          if (isTrue(left.value))
+            return optimize(constraint);
+          if (isFalse(left.value))
+            return optimize({ type: "not", constraint });
+        }
+      }
+
+      if (right.type === 'static' && left.type === 'computed') {
+        const constraint = computedToConstraint(left);
+        if (constraint) {
+          if (isTrue(right.value))
+            return optimize(constraint);
+          if (isFalse(right.value))
+            return optimize({ type: "not", constraint });
+        }
+      }
+
+      // END PREPROCESSING THAT SHOULD BE REMOVED AND HANDLED EARLIER
+
+      return {
+        type: "=",
+        left: left,
+        right: right,
+      };
+    case "unary":
+      const input = preCompute(constraint.constraint);
+      if (input.type === 'static') {
+        switch (constraint.operator) {
+          case "isiri":
+            return input.value.termType === "NamedNode" ? 'true' : 'false';
+          case "isblank":
+            return input.value.termType === "BlankNode" ? 'true' : 'false';
+          default:
+            throw new Error("Unsupported unary operator: " + constraint.operator);
+        }
+      }
+      return {
+        type: "unary",
+        constraint: input,
+        operator: constraint.operator,
+      };
     default:
       return constraint;
   }
 }
 
+function preCompute(constraint: CircomTerm): CircomTerm {
+  switch (constraint.type) {
+    case "variable": return constraint;
+    case "input": return constraint;
+    case "static": return constraint;
+    case "computed": return constraint;
+    case "computedBinary": return constraint;
+  }
+}
+
 // Main generation function
-export function generateCircuit(queryFilePath: string = "sparql.rq", options: CircuitOptions = { termSize: 128, version: '2.1.2' }): string {
+export function generateCircuit(queryFilePath: string = "sparql.rq", options: CircuitOptions = { termSize: 128, version: '2.1.2' }) {
   const query = fs.readFileSync(queryFilePath, "utf8");
   const state = topLevel(translate(query));
 
@@ -327,10 +492,19 @@ export function generateCircuit(queryFilePath: string = "sparql.rq", options: Ci
       // Rather than creating extra hidden variables, we just use the existing variable where possible
       anonymousVariables[bind.left.value] = serializeTerm(bind.right);
     else
-      constraints.push(`${serializeTerm(bind.left)} <== ${serializeTerm(bind.right)}`);
+      constraints.push(`${serializeTerm(bind.left)} <== ${serializeTerm(bind.right, true)}`);
   }
 
-  function serializeTerm(term: Var | Input | Static): string {
+  function writeAnonymous(term: string, assignment: boolean = false): string {
+    if (assignment) {
+      return term;
+    }
+    const hid = `hid[${id++}]`;
+    constraints.push(`${hid} <-- ${term}`);
+    return hid;
+  }
+
+  function serializeTerm(term: CircomTerm, assignment: boolean = false): string {
     switch (term.type) {
       case "variable":
         if (state.variables.includes(term.value))
@@ -339,17 +513,26 @@ export function generateCircuit(queryFilePath: string = "sparql.rq", options: Ci
           return (anonymousVariables[term.value] ??= `hid[${id++}]`);
       case "input":  return `triples[${term.value[0]}][${term.value[1]}]`;
       case "static": return `[${getIndex(term.value).join(", ")}]`;
+      // case "computed": 
+      //   imports.add("./operators.circom");
+      //   return `${term.computedType}()(${serializeTerm(term.input)})`;
+      case "computed": 
+        imports.add("./operators.circom");
+        return writeAnonymous(`${term.computedType}()(${serializeTerm(term.input)})`, assignment);
+      case "computedBinary":
+        imports.add("./operators.circom");
+        return writeAnonymous(`${term.computedType}()(${serializeTerm(term.left)}, ${serializeTerm(term.right)})`, assignment);
     }
   }
 
-  function termElem(term: Var | Static | Input): string[] {
+  function termElem(term: CircomTerm): string[] {
     if (term.type === "static")
       return getIndex(term.value).map(term => term.toString());
     const serialized = serializeTerm(term);
     return Array(options.termSize).fill(0).map((_, i) => `${serialized}[${i}]`);
   }
 
-  function eqTerms(left: Var | Static | Input, right: Var | Static | Input): string {
+  function eqTerms(left: CircomTerm, right: CircomTerm): string {
     const leftElems = termElem(left);
     const rightElems = termElem(right);
     if (leftElems.length !== rightElems.length)
@@ -365,20 +548,24 @@ export function generateCircuit(queryFilePath: string = "sparql.rq", options: Ci
       case "all":
       case "some":
         if (constraint.constraints.length === 0) throw new Error("Expected at least one constraint");
-        let res = createConstraint(constraint.constraints[0]);
-        for (let i = 1; i < constraint.constraints.length; i++)
-          res = `${constraint.type === "all" ? "AND" : "OR"}()(${res}, ${createConstraint(constraint.constraints[i])})`;
-        return res;
+        return constraint.constraints.map(createConstraint).join(constraint.type === "all" ? " && " : " || ");
+        // let res = createConstraint(constraint.constraints[0]);
+        // for (let i = 1; i < constraint.constraints.length; i++)
+        //   res = `${constraint.type === "all" ? "AND" : "OR"}()(${res}, ${createConstraint(constraint.constraints[i])})`;
+        // return res;
       case "not":
-        return `NOT()(${createConstraint(constraint.constraint)})`;
+        return `!(${createConstraint(constraint.constraint)})`;
+        // return `NOT()(${createConstraint(constraint.constraint)})`;
       case "=":
         // TODO: Optimise this to use actual equality constraints
         return eqTerms(constraint.left, constraint.right);
       case "unary":
         imports.add("circomlib/circuits/comparators.circom");
         switch (constraint.operator) {
-          case "isiri":   return `IsEqual()([${serializeTerm(constraint.constraint)}[0], 0])`;
-          case "isblank": return `IsEqual()([${serializeTerm(constraint.constraint)}[0], 1])`;
+          case "isiri":   return `${serializeTerm(constraint.constraint)}[0] == 0`;
+          case "isblank": return `${serializeTerm(constraint.constraint)}[0] == 1`;
+          // case "isiri":   return `IsEqual()([${serializeTerm(constraint.constraint)}[0], 0])`;
+          // case "isblank": return `IsEqual()([${serializeTerm(constraint.constraint)}[0], 1])`;
           default:
             throw new Error("Unsupported unary operator: " + constraint.operator);
         }
@@ -394,7 +581,14 @@ export function generateCircuit(queryFilePath: string = "sparql.rq", options: Ci
   // Get an optimized set of constraints
   const topLevelConstraint = optimize(state.constraint);
 
-  if (topLevelConstraint.type === "all") {
+  // console.log(JSON.stringify(topLevelConstraint, null, 2));
+  // process.exit(1);
+
+  if (topLevelConstraint === 'true') {
+    console.warn("Query has no filtering constraints");
+  } else if (topLevelConstraint === 'false') {
+    throw new Error("Query is unsatisfiable");
+  } else if (topLevelConstraint.type === "all") {
     for (const c of topLevelConstraint.constraints) {
       switch (c.type) {
         case "=":
@@ -426,7 +620,9 @@ export function generateCircuit(queryFilePath: string = "sparql.rq", options: Ci
     handleConstraint(state.constraint);
   }
 
-  constraints.push(...[...ands, ...nots].map((a, i) => `and[${i}] <== ${a}`));
+  // TODO: ASK IF THIS IS REQUIRED
+  // constraints.push(...[...ands, ...nots].map((a, i) => `and[${i}] <== ${a}`));
+  constraints.push(...[...ands, ...nots].map((a, i) => `and[${i}] <-- ${a}`));
 
   let output = `pragma circom ${options.version};\n\n`;
   for (const imp of imports)
@@ -447,10 +643,17 @@ export function generateCircuit(queryFilePath: string = "sparql.rq", options: Ci
   if (ands.size > 0 || nots.size > 0)
     output += `  and === [${[...Array(ands.size).fill(1), ...Array(nots.size).fill(0)].join(", ")}];\n`;
   output += `}\n`;
-  return output;
+  return {
+    circuit: output,
+    metadata: {
+      variables: state.variables,
+    },
+  };
 }
 
 // Run the generator if this file is executed directly
 if (require.main === module) {
-  fs.writeFileSync("circuits/query.circom", generateCircuit());
+  const { circuit, metadata } = generateCircuit();
+  fs.writeFileSync("circuits/query.circom", circuit);
+  fs.writeFileSync("circuits/artefacts/query.json", JSON.stringify(metadata, null, 2));
 }

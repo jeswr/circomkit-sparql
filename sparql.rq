@@ -1,19 +1,23 @@
 PREFIX foaf: <http://xmlns.com/foaf/0.1/>
 PREFIX xs: <http://www.w3.org/2001/XMLSchema#>
 
-SELECT ?person WHERE {
+SELECT ?person ?age ?isLiteral ?isLang WHERE {
   ?person foaf:age ?age ;
           foaf:knows ?friend ;
           foaf:name ?name .
 
   # FILTER (?age >= 18)
-  # FILTER (?age < 25)
+  # FILTER (?age < xs:integer(25))
   # FILTER (?age = 20)
   FILTER (! (! isIRI(?friend)))
   FILTER ((! isLITERAL(?friend)))
   FILTER ((! isBLANK(?friend)))
   FILTER (isLITERAL(?name))
-  # FILTER (! isBLANK(?name))
-  # FILTER (lang(?name) = "en")
+  FILTER (isLITERAL(?name) = true)
+  FILTER (! isBLANK(?name))
+  BIND(isliteral(?name) AS ?isLiteral)
+  FILTER (isLITERAL("hello") = true)
+  FILTER (lang(?name) = "en")
+  BIND (lang(?name) = "en" AS ?isLang)
   # FILTER(?age)
 }

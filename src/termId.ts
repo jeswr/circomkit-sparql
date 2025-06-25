@@ -1,4 +1,5 @@
 import { Term } from "@rdfjs/types";
+import { DataFactory as DF } from "n3";
 
 function stringToInts(str: string, size = 127): number[] {
   let utf8Encode = new TextEncoder();
@@ -8,6 +9,18 @@ function stringToInts(str: string, size = 127): number[] {
     throw new Error("Term is too long");
   }
   return ints.concat(Array(size - ints.length).fill(0));
+}
+
+function intsToString(ints: number[]): string {
+  // Remove trailing zeros
+  while (ints[ints.length - 1] === 0) {
+    ints.pop();
+  }
+
+  console.log(ints);
+
+  let utf8Decode = new TextDecoder();
+  return utf8Decode.decode(new Uint8Array(ints));
 }
 
 function getIndex(term: Term): [number, ...number[]] {
@@ -77,4 +90,37 @@ function getIndex(term: Term): [number, ...number[]] {
   }
 }
 
-export { getIndex, stringToInts };
+function fromIndex(index: number[]): Term {
+  switch (index[0]) {
+    case 0:
+      return DF.namedNode(intsToString(index.slice(1)));
+    case 1:
+      return DF.blankNode(intsToString(index.slice(1)));
+    case 2:
+      return DF.literal(intsToString(index.slice(1)), intsToString(index.slice(9)));
+    case 3:
+      return DF.literal(intsToString(index.slice(1)), DF.namedNode("http://www.w3.org/2001/XMLSchema#string"));
+    case 4:
+      return DF.literal(index[1] === 1 ? "true" : "false", DF.namedNode("http://www.w3.org/2001/XMLSchema#boolean"));
+    case 5:
+      return DF.literal(index[1].toString(), DF.namedNode("http://www.w3.org/2001/XMLSchema#integer"));
+    case 6:
+      return DF.literal(intsToString(index.slice(1)), DF.namedNode("http://www.w3.org/2001/XMLSchema#decimal"));
+    case 7:
+      return DF.literal(intsToString(index.slice(1)), DF.namedNode("http://www.w3.org/2001/XMLSchema#float"));
+    case 8:
+      return DF.literal(intsToString(index.slice(1)), DF.namedNode("http://www.w3.org/2001/XMLSchema#double"));
+    case 9:
+      return DF.literal(intsToString(index.slice(1)), DF.namedNode("http://www.w3.org/2001/XMLSchema#dateTime"));
+    case 10:
+      return DF.literal(intsToString(index.slice(1)), DF.namedNode("http://www.w3.org/2001/XMLSchema#date"));
+    case 11:
+      return DF.literal(intsToString(index.slice(1)), DF.namedNode("http://www.w3.org/2001/XMLSchema#time"));
+    case 12:
+      return DF.literal(intsToString(index.slice(1)), DF.namedNode("http://www.w3.org/2001/XMLSchema#gYear"));
+    default:
+      return DF.literal(intsToString(index.slice(1)), DF.namedNode(intsToString(index.slice(1, 64))));
+  }
+}
+
+export { getIndex, stringToInts, fromIndex };
