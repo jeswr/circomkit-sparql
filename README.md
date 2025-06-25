@@ -2,6 +2,10 @@
 
 This repository implements a **SPARQL-to-Circuit compiler** that generates zero-knowledge circuits from SPARQL queries using [Circomkit](https://github.com/erhant/circomkit). It allows you to prove knowledge of RDF data that satisfies a SPARQL query without revealing the actual data values.
 
+## Key Files
+
+* src/generateFunctional.ts - this is the code for converting SPARQL to circuits
+
 ## Design Choices
 
 To reduce complexity of the circuits - we place the following restrictions on input datatypes:
