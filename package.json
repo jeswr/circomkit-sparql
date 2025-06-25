@@ -2,7 +2,7 @@
   "description": "Circomkit examples",
   "scripts": {
     "start": "npx ts-node ./src/index.ts",
-    "generate": "npx ts-node ./src/generate.ts",
+    "generate": "npx ts-node ./src/generateFunctional.ts",
     "test": "npx mocha",
     "input": "npx ts-node ./src/createMockInput.ts",
     "demo": "rm -rf build && npm run generate && npm run input && npm run start"

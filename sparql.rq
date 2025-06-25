@@ -6,10 +6,11 @@ SELECT ?person WHERE {
           foaf:knows ?friend ;
           foaf:name ?name .
 
-  FILTER (?age >= xs:integer(18))
-  FILTER (?age < xs:integer(25))
-  FILTER (?age != xs:integer(20))
-  FILTER (isIRI(?friend))
+  # FILTER (?age >= xs:integer(18))
+  # FILTER (?age < xs:integer(25))
+  FILTER (?age = 20 )
+  # FILTER (isIRI(?friend))
   # FILTER (! isBLANK(?name))
-  FILTER (lang(?name) = "en")
+  # FILTER (lang(?name) = "en")
+  # FILTER(?age)
 }
