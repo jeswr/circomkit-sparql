@@ -3,5 +3,5 @@
 
 # ex:jesse foaf:age 19 .
 ex:jesse foaf:age 20 ;
-    foaf:knows ex:bob ;
-    foaf:name "Jesse"@en .
+    foaf:knows ex:bob .
+ex:bob    foaf:name "Bob"@en .

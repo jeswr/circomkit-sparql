@@ -2,6 +2,13 @@
 
 This repository implements a **SPARQL-to-Circuit compiler** that generates zero-knowledge circuits from SPARQL queries using [Circomkit](https://github.com/erhant/circomkit). It allows you to prove knowledge of RDF data that satisfies a SPARQL query without revealing the actual data values.
 
+## Design Choices
+
+To reduce complexity of the circuits - we place the following restrictions on input datatypes:
+
+* Datatypes must be well-formed - for instance "a"^^xsd:integer cannot be encoded or provided to the circuit
+* Only one form of semantically equal literals are supported. E.g. "true"^^xsd:boolean is supported, "1"^^xsd:boolean is not. "1"^^xsd:integer is supported "01"^^xsd:integer is not.
+
 ## How It Works
 
 The system translates SPARQL queries into Circom circuits that can verify:
@@ -268,6 +275,7 @@ Protocol: PLONK
 ```
 
 **Notes:**
+
 - Performance scales with query complexity (number of triple patterns and FILTER constraints)
 - Initial setup includes circuit compilation and cryptographic parameter generation
 - Proof generation time is dominated by constraint satisfaction

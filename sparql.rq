@@ -3,15 +3,14 @@ PREFIX xs: <http://www.w3.org/2001/XMLSchema#>
 
 SELECT ?person ?age ?isLiteral ?isLang WHERE {
   ?person foaf:age ?age ;
-          foaf:knows ?friend ;
-          foaf:name ?name .
+          foaf:knows/foaf:name ?name .
 
   # FILTER (?age >= 18)
   # FILTER (?age < xs:integer(25))
   # FILTER (?age = 20)
-  FILTER (! (! isIRI(?friend)))
-  FILTER ((! isLITERAL(?friend)))
-  FILTER ((! isBLANK(?friend)))
+  # FILTER (! (! isIRI(?friend)))
+  # FILTER ((! isLITERAL(?friend)))
+  # FILTER ((! isBLANK(?friend)))
   FILTER (isLITERAL(?name))
   FILTER (isLITERAL(?name) = true)
   FILTER (! isBLANK(?name))

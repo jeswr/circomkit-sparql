@@ -1,4 +1,4 @@
-import { translate, Algebra, } from "sparqlalgebrajs";
+import { translate, Algebra, Factory } from "sparqlalgebrajs";
 import fs from "fs";
 import { Variable, BaseQuad, Term } from "@rdfjs/types";
 import { getIndex, stringToInts } from "./termId";
@@ -182,25 +182,91 @@ function filter(op: Algebra.Filter): OutInfo {
         constraintExpression(expression),
       ],
     },
+    optionalPatterns: res.optionalPatterns,
   };
 }
 
 interface OutInfo {
   inputPatterns: Algebra.Pattern[];
+  optionalPatterns: Algebra.Pattern[];
   binds: BindConstraint[];
   constraint: Constraint;
 }
 
-function bgp(op: Algebra.Bgp): OutInfo {
-  const { patterns } = op;
+function handlePatterns(patterns: (Algebra.Pattern | Algebra.Path)[]): OutInfo {
   const variables: Set<string> = new Set();
   const constraints: (Constraint | BindConstraint)[] = [];
+  const outputPatterns: Algebra.Pattern[] = [];
+  const optionalPatterns: Algebra.Pattern[] = [];
 
   for (let i = 0; i < patterns.length; i++) {
     const pattern = patterns[i];
+
     if (pattern.graph.termType !== "DefaultGraph") {
       throw new Error("Expected a default graph");
     }
+
+    if (pattern.type === Algebra.types.PATH) {
+      if (pattern.predicate.type === "ZeroOrOnePath") {
+        optionalPatterns.push(
+          (new Factory()).createPattern(
+            pattern.subject,
+            pattern.predicate.path.iri,
+            pattern.object,
+            pattern.graph,
+          )
+        );
+        constraints.push({
+          type: "some",
+          constraints: [
+            // CASE 1: ZERO PATH - SUBJECT AND OBJECT VARIABLE ARE THE SAME
+            {
+              type: "=",
+              left: { type: "variable", value: pattern.subject.value },
+              // FIX: REFERENCE THE OPTIONAL INPUT PATTERN
+              right: { type: "variable", value: pattern.object.value },
+            },
+            // CASE 2: ONE PATH - SUBJECT AND OBJECT VARIABLE ARE DIFFERENT
+            // HERE WE NEED TO DO AN EQUALITY CHECK ON THE FULL TRIPLE
+            {
+              type: "all",
+              constraints: [
+                // TODO: FIX THE Is
+                {
+                  type: "=",
+                  left: { type: "variable", value: pattern.subject.value },
+                  right: { type: "input", value: [i, 0] },
+                },
+                {
+                  type: "=",
+                  // TODO: SEE WHAT PATHS OTHER THAN LINK EXIST AND PROPERLY TYPE CHECK
+                  left: { type: "static", value: pattern.predicate.path.iri },
+                  right: { type: "input", value: [i, 1] },
+                },
+                {
+                  type: "=",
+                  left: { type: "variable", value: pattern.object.value },
+                  right: { type: "input", value: [i, 2] },
+                },
+              ],
+            }
+          ],
+        });
+        constraints.push({
+          type: "=",
+          left: { type: "variable", value: pattern.object.value },
+          right: { type: "input", value: [i, 2] },
+        });
+        // TODO: REMOVE ALL BINDS AND MAKE THEM EQUALITY CONSTRAINTS; THEN WE CAN JUST
+        // SUPPLY THESE VALUES TO THE CIRCUIT AND THE ABOVE EQUALITY CONSTRAINTS WILL BE
+        // WILL BE VALID
+        continue;
+      } else {
+        throw new Error("Unsupported operation: " + pattern.type);
+      }
+    }
+
+    outputPatterns.push(pattern);
 
     for (let j = 0; j < 3; j++) {
       const term = pattern[(['subject', 'predicate', 'object'] as const)[j]];
@@ -225,13 +291,18 @@ function bgp(op: Algebra.Bgp): OutInfo {
   }
 
   return {
-    inputPatterns: patterns,
+    inputPatterns: outputPatterns,
+    optionalPatterns: optionalPatterns,
     binds: constraints.filter((c): c is BindConstraint => c.type === "bind"),
     constraint: {
       type: "all",
       constraints: constraints.filter((c): c is Constraint => c.type !== "bind"),
     },
   };
+}
+
+function bgp(op: Algebra.Bgp): OutInfo {
+  return handlePatterns(op.patterns);
 }
 
 function extend(op: Algebra.Extend): OutInfo {
@@ -250,11 +321,31 @@ function extend(op: Algebra.Extend): OutInfo {
   };
 }
 
+function join(op: Algebra.Join): OutInfo {
+  const patterns: (Algebra.Pattern | Algebra.Path)[] = [];
+
+  for (const i of op.input) {
+    switch (i.type) {
+      case Algebra.types.PATH:
+        patterns.push(i);
+        break;
+      case Algebra.types.BGP:
+        patterns.push(...i.patterns);
+        break;
+      default:
+        throw new Error("Unsupported operation: " + i.type);
+    }
+  }
+
+  return handlePatterns(patterns);
+}
+
 function operation(op: Algebra.Operation): OutInfo {
   switch (op.type) {
     case Algebra.types.FILTER: return filter(op);
     case Algebra.types.BGP: return bgp(op);
     case Algebra.types.EXTEND: return extend(op);
+    case Algebra.types.JOIN: return join(op);
     default:
       throw new Error(`Unsupported operation: ${op.type}`);
   }
@@ -647,6 +738,8 @@ export function generateCircuit(queryFilePath: string = "sparql.rq", options: Ci
     circuit: output,
     metadata: {
       variables: state.variables,
+      inputPatterns: state.inputPatterns,
+      optionalPatterns: state.optionalPatterns,
     },
   };
 }

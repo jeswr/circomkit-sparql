@@ -1,0 +1,7 @@
+template istrue(numBits) {
+  signal input l[numBits];
+  signal input r[numBits];
+  signal output out;
+
+  out <-- all(numBits)(in);
+}
