@@ -15,16 +15,18 @@ async function main() {
     params: [],
   });
 
+  const ptau = "11";
+
   // check if ptau file exists
-  if (!fs.existsSync("./ptau/powersOfTau28_hez_final_09.ptau")) {
+  if (!fs.existsSync(`./ptau/powersOfTau28_hez_final_${ptau}.ptau`)) {
     // download ptau file
-    const response = await fetch("https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_09.ptau");
+    const response = await fetch(`https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_${ptau}.ptau`);
     const data = await response.arrayBuffer();
-    fs.writeFileSync("./ptau/powersOfTau28_hez_final_09.ptau", Buffer.from(data));
+    fs.writeFileSync(`./ptau/powersOfTau28_hez_final_${ptau}.ptau`, Buffer.from(data));
   }
 
   // manually setup with correct ptau file
-  await circomkit.setup("query_test", "./ptau/powersOfTau28_hez_final_09.ptau");
+  await circomkit.setup("query_test", `./ptau/powersOfTau28_hez_final_${ptau}.ptau`);
 
   // proof & public signals at `build/sparql_age_jesse/my_input` directory
   console.time("Proof generation");
