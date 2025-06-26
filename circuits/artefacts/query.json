@@ -1,9 +1,6 @@
 {
   "variables": [
-    "person",
-    "age",
-    "isLiteral",
-    "isLang"
+    "person"
   ],
   "inputPatterns": [
     {
@@ -40,7 +37,7 @@
       },
       "object": {
         "termType": "Variable",
-        "value": "var0"
+        "value": "friend"
       },
       "graph": {
         "termType": "DefaultGraph",
@@ -53,7 +50,7 @@
       "value": "",
       "subject": {
         "termType": "Variable",
-        "value": "var0"
+        "value": "friend"
       },
       "predicate": {
         "termType": "NamedNode",

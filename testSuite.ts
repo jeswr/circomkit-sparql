@@ -2,15 +2,15 @@ import { ManifestLoader, TestCaseQueryEvaluation } from 'rdf-test-suite';
 import { translate } from 'sparqlalgebrajs';
 
 const UNSUPPORTED_OPERATIONS = [
-  'SUM(',
-  'COUNT(',
-  'AVG(',
-  'MIN(',
-  'MAX(',
-  'SAMPLE(',
+  'SUM',
+  'COUNT',
+  'AVG',
+  'MIN',
+  'MAX',
+  'SAMPLE',
   'GROUP_CONCAT(',
-  'GROUP_CONCAT(',
-  'MINUS(',
+  'MINUS',
+  'NOT EXISTS'
 ]
 
 async function main() {

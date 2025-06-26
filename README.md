@@ -2,6 +2,25 @@
 
 This repository implements a **SPARQL-to-Circuit compiler** that generates zero-knowledge circuits from SPARQL queries using [Circomkit](https://github.com/erhant/circomkit). It allows you to prove knowledge of RDF data that satisfies a SPARQL query without revealing the actual data values.
 
+## Current stage
+
+We have a working SPARQL (susbet) -> CIRCOM compiler (see [src/generateFunctional.ts](./src/generateFunctional.ts)); and would now like to work out how to integrate the matrix lookup arguments.
+
+For now lets talk in terms of the example:
+
+* generate circuit [./circuits/query.circom](./circuits/query.circom) - generated from [./sparql.rq](./sparql.rq)
+* input data [./circuits/artefacts/my_input.json](./circuits/artefacts/my_input.json) - generated from [./data.ttl](./data.ttl)
+
+I would now like support to develop the matrix lookup for the input triples in the circuit.
+
+Note that the current input triples look like `triple[3][3][128]` . This is a different representation to Christophs most recent paper (who would've had an input of `triple[3][5]` to represent [subject, predicate, object, object datatype, graph]) the differences are that:
+
+* We do not currently describe the graph name (which was the 5th element)
+* We use the first bit of the 128 bit term signal to represent the datatype for each term
+* We use the remaining 127 bits to describe the string in the case of IRI (think URL) terms; or the datatype value of datatypes - e.g. the integer 2012 is represneted as `[3, 2012, 0, ..., 0]`, the boolean true is represneted as `[4, 1, 0, ..., 0]` and the IRI `http://example.org/jesse` is represented as `[ 104, 116, 116, 112,  58,  47, 47, 101, 120,  97, 109, 112, 108, 101,  46, 111, 114, 103, 47, 106, 101, 115, 115, 101, 0, ..., 0]`. This enabled me to prove properties on strings.
+
+I am happy to change the input signal back to something like `triple[3][5]` - or `triple[3][3]`; it would be ideal if we could still prove properties of strings based on the field representaiton of an IRI. Is this possible? I seem to remember an indication that it was not in one of our calls.
+
 ## Key Files
 
 * src/generateFunctional.ts - this is the code for converting SPARQL to circuits
