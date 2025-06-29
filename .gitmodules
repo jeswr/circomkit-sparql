@@ -1,0 +1,3 @@
+[submodule "circuits/crescent-credentials"]
+	path = circuits/crescent-credentials
+	url = https://github.com/microsoft/crescent-credentials.git
