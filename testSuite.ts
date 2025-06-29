@@ -10,7 +10,15 @@ const UNSUPPORTED_OPERATIONS = [
   'SAMPLE',
   'GROUP_CONCAT(',
   'MINUS',
-  'NOT EXISTS'
+  'NOT EXISTS',
+  // Operations that we can support; because the verifier needs to just check outside of the circuit
+  'ORDER BY',
+  'LIMIT',
+  'GROUP BY',
+  // Operations we can support; because the verifier needs to just check outside of the circuit
+  'UNION',
+  // Operations that we could just ignore
+  'OFFSET',
 ]
 
 async function main() {

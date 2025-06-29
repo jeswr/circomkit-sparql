@@ -16,12 +16,14 @@
     "rdf-namespaces": "^1.13.1",
     "rdf-string-ttl": "^2.0.1",
     "rdf-terms": "^2.0.0",
+    "secp256k1": "^5.0.1",
     "sparqlalgebrajs": "^5.0.1"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.1",
     "@types/n3": "^1.26.0",
     "@types/node": "^20.3.0",
+    "@types/secp256k1": "^4.0.6",
     "mocha": "^10.2.0",
     "rdf-test-suite": "^2.1.0",
     "ts-node": "^10.9.1",
